@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 
 # --- CONFIGURAÇÕES ---
-__version__ = "0.2.0"
+__version__ = "0.2"
 CAMINHO_MAC = '/Users/leonardorcarvalho/Library/CloudStorage/OneDrive-Pessoal/Documentos/GitHub/ts-para-alteracao'
 
 # Siglas e nomes próprios protegidos
