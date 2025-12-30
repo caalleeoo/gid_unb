@@ -18,17 +18,16 @@ TEXTO_LICENCA = (
 )
 
 def aplicar_regra_caracteres(texto):
-    """Regra: até 2 caracteres = minusculo (xx). Mais de 2 = Capitalizado (Xxxxx)."""
+    """Regra: até 3 caracteres = minúsculo (xxx). Mais de 3 = Capitalizado (Xxxxx)."""
     if not texto: return texto
     palavras = texto.strip().split()
     resultado = []
     for p in palavras:
         p_limpa = re.sub(r'[^\w]', '', p)
-        # Verifica se está na lista de preservação antes de aplicar a regra de tamanho
         if any(fixo.lower() == p_limpa.lower() for fixo in PRESERVAR):
             correta = [fixo for fixo in PRESERVAR if fixo.lower() == p_limpa.lower()][0]
             resultado.append(p.replace(p_limpa, correta))
-        elif len(p) <= 2:
+        elif len(p_limpa) <= 3:
             resultado.append(p.lower())
         else:
             resultado.append(p.capitalize())
@@ -51,12 +50,15 @@ def tratar_texto_com_preservacao(texto, forcar_primeira_maiuscula=True):
                 resultado.append(p.lower())
     return " ".join(resultado)
 
-def formatar_ppg(texto):
-    """Regra: Padroniza PPG com a regra de caracteres (xx vs Xxxxx)."""
-    if not texto: return texto
-    conteudo = re.sub(r'^PROGRAMA\s+DE\s+PÓS-GRADUAÇÃO\s+EM\s+', '', texto, flags=re.IGNORECASE)
-    corpo = aplicar_regra_caracteres(conteudo)
-    return f"Programa de Pós-Graduação em {corpo}"
+def extrair_apenas_nome_curso(texto_citacao):
+    """Extrai o nome do curso de dentro dos parênteses, removendo prefixos de titulação."""
+    match = re.search(r'\((.*?)\)', texto_citacao)
+    if match:
+        conteudo = match.group(1)
+        # Remove "Mestrado em" ou "Doutorado em" se já existirem na origem para isolar o curso
+        limpo = re.sub(r'^(Mestrado|Doutorado)\s+em\s+', '', conteudo, flags=re.IGNORECASE)
+        return aplicar_regra_caracteres(limpo)
+    return None
 
 def ajustar_autor_citacao(autor_tratado):
     if ',' not in autor_tratado: return autor_tratado.upper()
@@ -67,11 +69,13 @@ def processar_xml(caminho_arquivo):
     try:
         tree = ET.parse(caminho_arquivo)
         root = tree.getroot()
-        dados_sinc = {'autor': '', 'titulo': ''}
+        
+        # Dicionário de sincronização
+        dados_sinc = {'autor': '', 'titulo': '', 'curso_limpo': '', 'tipo_doc': ''}
         elementos_originais = root.findall("dcvalue")
         novos_elementos = []
 
-        # PASSO 1: Coleta dados para sincronização
+        # PASSO 1: Coleta e análise prévia
         for elem in elementos_originais:
             el, qu = elem.get("element"), elem.get("qualifier")
             txt = elem.text if elem.text else ""
@@ -80,6 +84,10 @@ def processar_xml(caminho_arquivo):
             elif el == "title":
                 t_base = tratar_texto_com_preservacao(txt)
                 dados_sinc['titulo'] = re.sub(r'\s*:\s*', ' : ', t_base)
+            elif el == "type":
+                dados_sinc['tipo_doc'] = txt # masterThesis ou doctoralThesis
+            elif qu == "citation":
+                dados_sinc['curso_limpo'] = extrair_apenas_nome_curso(txt)
 
         # PASSO 2: Transformação Geral
         for elem in elementos_originais:
@@ -88,7 +96,7 @@ def processar_xml(caminho_arquivo):
             lang = elem.get("language")
 
             try:
-                # Renomeia advisor-co1, 2, 3 para advisorco
+                # Unificação de Co-orientadores
                 if el == "contributor" and qu and qu.startswith("advisor-co"):
                     elem.set("qualifier", "advisorco")
                     qu = "advisorco"
@@ -112,7 +120,7 @@ def processar_xml(caminho_arquivo):
                 elif el == "title":
                     elem.text = dados_sinc['titulo']
 
-                # Citação e Identificadores
+                # Citação e Identificadores (Regra de Titulação Cruzada)
                 elif el == "identifier" or qu == "citation":
                     if qu == "citation":
                         partes = txt.split('.')
@@ -121,22 +129,28 @@ def processar_xml(caminho_arquivo):
                             titulo_cit = dados_sinc['titulo']
                             txt = f"{autor_cit}. {titulo_cit}. " + ".".join(partes[2:])
                     
-                    # Aplica regra de caracteres dentro dos parênteses ()
-                    txt = re.sub(r'\((.*?)\)', lambda m: f"({aplicar_regra_caracteres(m.group(1))})", txt)
+                    # Trata o curso dentro dos parênteses na citação
+                    curso = dados_sinc['curso_limpo'] if dados_sinc['curso_limpo'] else "Não Informado"
+                    prefixo = "Mestrado em" if dados_sinc['tipo_doc'] == "masterThesis" else "Doutorado em"
+                    titulacao_completa = f"{prefixo} {curso}"
                     
-                    # Correções de texto e espaço
+                    # Substitui o conteúdo dos parênteses pelo padrão: (Mestrado em Nome do Curso)
+                    txt = re.sub(r'\((.*?)\)', f"({titulacao_completa})", txt)
+                    
+                    # Correções de texto e espaços padrão UnB
                     txt = re.sub(r'(\d+)f\.', r'\1 f.', txt)
                     txt = txt.replace("Universidade De Brasília, Universidade de Brasília", "— Universidade de Brasília")
                     txt = txt.replace("- — Universidade de Brasília, Brasília", "— Universidade de Brasília, Brasília")
                     elem.text = txt
 
-                # PPG (Regra de caracteres aplicada aqui)
+                # PPG (Apenas nome do curso, sem o prefixo da titulação)
                 elif (el == "description" and qu == "ppg") or (el == "publisher" and qu == "program"):
                     elem.set("element", "description")
                     elem.set("qualifier", "ppg")
-                    elem.text = formatar_ppg(txt)
+                    curso_ppg = dados_sinc['curso_limpo'] if dados_sinc['curso_limpo'] else aplicar_regra_caracteres(txt)
+                    elem.text = f"Programa de Pós-Graduação em {curso_ppg}"
                 
-                # Mapeamentos simples
+                # Mapeamentos e Licença
                 elif qu == "resumo": elem.set("qualifier", "abstract")
                 elif qu == "abstract": elem.set("qualifier", "abstract1")
                 elif el == "date" and qu == "issued": elem.set("qualifier", "submitted")
@@ -149,7 +163,7 @@ def processar_xml(caminho_arquivo):
                 print(f"⚠️ Pulo no metadado {el}.{qu}: {e_inner}")
                 novos_elementos.append(elem)
 
-        # PASSO 3: Campos obrigatórios e Data Final
+        # PASSO 3: Metadados Obrigatórios e Data Final
         data_f = ET.Element("dcvalue", element="date", qualifier="issued")
         data_f.text = datetime.now().strftime("%Y-%m-%d")
         novos_elementos.append(data_f)
@@ -163,6 +177,7 @@ def processar_xml(caminho_arquivo):
                 novo.text = val
                 novos_elementos.append(novo)
 
+        # Gravação final
         root.clear()
         for el in novos_elementos: root.append(el)
         tree.write(caminho_arquivo, encoding="utf-8", xml_declaration=True)
