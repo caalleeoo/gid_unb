@@ -1,11 +1,19 @@
 import os
 import re
+import csv
 import xml.etree.ElementTree as ET
 from datetime import datetime
+from thefuzz import fuzz, process
 
-# --- CONFIGURAÇÕES ---
+# --- CONFIGURAÇÕES DE CAMINHO ---
 __version__ = "0.2"
 CAMINHO_MAC = '/Users/leonardorcarvalho/Library/CloudStorage/OneDrive-Pessoal/Documentos/GitHub/ts-para-alteracao'
+CAMINHO_CSV_ADVISORS = '/Users/leonardorcarvalho/Library/CloudStorage/OneDrive-Pessoal/Documentos/GitHub/gid-docs/testefinal/advisor-ppg.csv'
+CAMINHO_CSV_KEYWORDS = '/Users/leonardorcarvalho/Library/CloudStorage/OneDrive-Pessoal/Documentos/GitHub/gid-docs/testefinal/keywords.csv'
+
+# Limiares de similaridade (0-100)
+THRESHOLD_ADVISOR = 90
+THRESHOLD_KEYWORD = 90
 
 # Siglas e nomes próprios protegidos
 PRESERVAR = ['UnB', 'IBICT', 'Brasília', 'Distrito Federal', 'Brasil', 'PMDF', 'DF', 'Mestrado', 'Doutorado', 'MEC', 'CAPES', 'MDF', 'PP', 'PEAD']
@@ -18,8 +26,34 @@ TEXTO_LICENCA = (
     "a título de divulgação da produção científica brasileira, a partir desta data."
 )
 
+DATA_EXECUCAO = datetime.now().strftime("%Y-%m-%d")
+
+# Listas globais para relatórios
+RELATORIO_ADVISORS = []
+RELATORIO_KEYWORDS = []
+
+# --- FUNÇÕES DE APOIO ---
+
+def carregar_csv_dict(caminho, com_frequencia=False):
+    dados = {}
+    if not os.path.exists(caminho): return {}
+    try:
+        with open(caminho, mode='r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            for linha in reader:
+                if not linha or len(linha) < 1: continue
+                if linha[0].lower() in ['termo', 'orientador', 'nome'] or (len(linha) > 1 and not linha[1].strip().isdigit()):
+                    continue
+                termo = linha[0].strip()
+                freq = int(linha[1].strip()) if com_frequencia and len(linha) > 1 else 0
+                dados[termo] = freq
+    except: pass
+    return dados
+
+BASE_ADVISORS = carregar_csv_dict(CAMINHO_CSV_ADVISORS)
+BASE_KEYWORDS = carregar_csv_dict(CAMINHO_CSV_KEYWORDS, com_frequencia=True)
+
 def aplicar_regra_caracteres(texto):
-    """Regra: até 3 caracteres = minúsculo (xxx). Mais de 3 = Capitalizado (Xxxxx)."""
     if not texto: return texto
     palavras = texto.strip().split()
     resultado = []
@@ -34,167 +68,162 @@ def aplicar_regra_caracteres(texto):
             resultado.append(p.capitalize())
     return " ".join(resultado)
 
-def tratar_texto_com_preservacao(texto, forcar_primeira_maiuscula=True):
-    """Sentence Case padrão para Títulos."""
-    if not texto: return texto
-    palavras = texto.strip().split()
-    resultado = []
+def tratar_titulo(texto):
+    if not texto: return ""
+    txt = texto.strip()
+    palavras = txt.split()
+    res = []
     for i, p in enumerate(palavras):
-        p_limpa = re.sub(r'[^\w]', '', p)
-        if any(fixo.lower() == p_limpa.lower() for fixo in PRESERVAR):
-            correta = [fixo for fixo in PRESERVAR if fixo.lower() == p_limpa.lower()][0]
-            resultado.append(p.replace(p_limpa, correta))
+        p_l = re.sub(r'[^\w]', '', p)
+        if any(f.lower() == p_l.lower() for f in PRESERVAR):
+            correta = [f for f in PRESERVAR if f.lower() == p_l.lower()][0]
+            res.append(p.replace(p_l, correta))
         else:
-            if i == 0 and forcar_primeira_maiuscula:
-                resultado.append(p.capitalize())
-            else:
-                resultado.append(p.lower())
-    return " ".join(resultado)
+            res.append(p.capitalize() if i == 0 else p.lower())
+    return re.sub(r'\s*:\s*', ' : ', " ".join(res))
 
-def extrair_apenas_nome_curso(texto_citacao):
-    """Extrai o nome do curso de dentro dos parênteses, removendo prefixos de titulação."""
-    match = re.search(r'\((.*?)\)', texto_citacao)
-    if match:
-        conteudo = match.group(1)
-        # Remove "Mestrado em" ou "Doutorado em" se já existirem na origem para isolar o curso
-        limpo = re.sub(r'^(Mestrado|Doutorado)\s+em\s+', '', conteudo, flags=re.IGNORECASE)
-        return aplicar_regra_caracteres(limpo)
-    return None
-
-def ajustar_autor_citacao(autor_tratado):
-    if ',' not in autor_tratado: return autor_tratado.upper()
-    sobrenome, resto = autor_tratado.split(',', 1)
-    return f"{sobrenome.upper()},{resto}"
+# --- PROCESSAMENTO PRINCIPAL ---
 
 def processar_xml(caminho_arquivo):
+    diretorio_item = os.path.dirname(caminho_arquivo)
+    nome_pasta = os.path.basename(diretorio_item)
+    caminho_correto = os.path.join(diretorio_item, "dublin_core.xml")
+
     try:
         tree = ET.parse(caminho_arquivo)
         root = tree.getroot()
-        
-        # Dicionário de sincronização
-        dados_sinc = {'autor': '', 'titulo': '', 'curso_limpo': '', 'tipo_doc': ''}
+        dados_sinc = {'autor': '', 'titulo': '', 'curso_ppg': '', 'tipo_doc': ''}
         elementos_originais = root.findall("dcvalue")
         novos_elementos = []
 
-        # PASSO 1: Coleta e análise prévia
+        # FASE 1: DESCOBERTA
         for elem in elementos_originais:
-            el, qu = elem.get("element"), elem.get("qualifier")
-            txt = elem.text if elem.text else ""
+            el, qu, txt = elem.get("element"), elem.get("qualifier"), elem.text or ""
             if el == "contributor" and qu == "author":
                 dados_sinc['autor'] = aplicar_regra_caracteres(txt)
             elif el == "title":
-                t_base = tratar_texto_com_preservacao(txt)
-                dados_sinc['titulo'] = re.sub(r'\s*:\s*', ' : ', t_base)
+                dados_sinc['titulo'] = tratar_titulo(txt)
             elif el == "type":
-                dados_sinc['tipo_doc'] = txt # masterThesis ou doctoralThesis
+                dados_sinc['tipo_doc'] = txt
             elif qu == "citation":
-                dados_sinc['curso_limpo'] = extrair_apenas_nome_curso(txt)
+                m = re.search(r'\((.*?)\)', txt)
+                if m:
+                    curso = re.sub(r'^(Mestrado|Doutorado)\s+em\s+', '', m.group(1), flags=re.IGNORECASE)
+                    dados_sinc['curso_ppg'] = aplicar_regra_caracteres(curso)
 
-        # PASSO 2: Transformação Geral
+        # FASE 2: TRANSFORMAÇÃO
         for elem in elementos_originais:
-            el, qu = elem.get("element"), elem.get("qualifier")
-            txt = elem.text if elem.text else ""
+            el, qu, txt = elem.get("element"), elem.get("qualifier"), elem.text or ""
             lang = elem.get("language")
 
             try:
-                # Unificação de Co-orientadores
-                if el == "contributor" and qu and qu.startswith("advisor-co"):
-                    elem.set("qualifier", "advisorco")
-                    qu = "advisorco"
+                if (qu and ("referees" in qu or qu.endswith("ID"))) or (el == "publisher" and qu in ["country", "initials"]):
+                    continue
 
-                # Exclusões
-                if qu and ("referees" in qu or qu.endswith("ID")): continue
-                if el == "publisher" and qu in ["country", "initials"]: continue
+                if el == "description" and qu == "resumo": elem.set("qualifier", "abstract"); qu = "abstract"
+                elif el == "description" and qu == "abstract": elem.set("qualifier", "abstract1"); qu = "abstract1"
 
-                # Keywords
+                if (el == "publisher" and qu == "program") or (el == "description" and qu == "ppg"):
+                    elem.set("element", "description"); elem.set("qualifier", "ppg")
+                    txt = f"Programa de Pós-Graduação em {dados_sinc['curso_ppg']}"
+                    el, qu = "description", "ppg"
+
+                if el == "date" and qu == "issued":
+                    elem.set("qualifier", "submitted"); qu = "submitted"
+
                 if el == "subject" and qu in ["none", "keyword"]:
-                    for t in [term.strip() for term in re.split(r'[;,\.]', txt) if term.strip()]:
+                    termos = re.split(r'[;,\.]', txt)
+                    for t in [term.strip() for term in termos if term.strip()]:
+                        t_limpo = re.sub(r'[\{\}\[\]\<\>\\\/]', '', t)
+                        m_k = process.extract(t_limpo, list(BASE_KEYWORDS.keys()), limit=3, scorer=fuzz.token_sort_ratio)
+                        validos = [m for m in m_k if m[1] >= THRESHOLD_KEYWORD]
+                        escolhido = max(validos, key=lambda x: BASE_KEYWORDS[x[0]])[0] if validos else aplicar_regra_caracteres(t_limpo)
+                        RELATORIO_KEYWORDS.append({'arquivo': nome_pasta, 'original': t, 'escolhido': escolhido, 'status': "CSV" if validos else "ORIGINAL"})
                         item = ET.Element("dcvalue", element="subject", qualifier="keyword")
                         if lang: item.set("language", lang)
-                        item.text = t.capitalize()
+                        item.text = escolhido.capitalize()
                         novos_elementos.append(item)
                     continue
 
-                # Sincronização de Autor e Título
-                if el == "contributor" and qu in ["advisor", "author", "advisorco"]:
-                    elem.text = aplicar_regra_caracteres(txt)
-                elif el == "title":
-                    elem.text = dados_sinc['titulo']
+                if el == "contributor" and qu == "advisor":
+                    m_a = process.extract(txt, list(BASE_ADVISORS.keys()), limit=3, scorer=fuzz.token_sort_ratio)
+                    res = m_a[0][0] if m_a and m_a[0][1] >= THRESHOLD_ADVISOR else aplicar_regra_caracteres(txt)
+                    RELATORIO_ADVISORS.append({'arquivo': nome_pasta, 'original': txt, 'escolhido': res, 'status': "CSV" if m_a and m_a[0][1] >= THRESHOLD_ADVISOR else "ORIGINAL"})
+                    txt = res
+                elif el == "contributor" and qu and qu.startswith("advisor-co"):
+                    elem.set("qualifier", "advisorco"); qu = "advisorco"
+                    txt = aplicar_regra_caracteres(txt)
+                elif el == "contributor" and qu == "author":
+                    txt = dados_sinc['autor']
 
-                # Citação e Identificadores (Regra de Titulação Cruzada)
-                elif el == "identifier" or qu == "citation":
-                    if qu == "citation":
-                        partes = txt.split('.')
-                        if len(partes) > 2:
-                            autor_cit = ajustar_autor_citacao(dados_sinc['autor'])
-                            titulo_cit = dados_sinc['titulo']
-                            txt = f"{autor_cit}. {titulo_cit}. " + ".".join(partes[2:])
-                    
-                    # Trata o curso dentro dos parênteses na citação
-                    curso = dados_sinc['curso_limpo'] if dados_sinc['curso_limpo'] else "Não Informado"
-                    prefixo = "Mestrado em" if dados_sinc['tipo_doc'] == "masterThesis" else "Doutorado em"
-                    titulacao_completa = f"{prefixo} {curso}"
-                    
-                    # Substitui o conteúdo dos parênteses pelo padrão: (Mestrado em Nome do Curso)
-                    txt = re.sub(r'\((.*?)\)', f"({titulacao_completa})", txt)
-                    
-                    # Correções de texto e espaços padrão UnB
+                elif el == "title": txt = dados_sinc['titulo']
+                elif qu == "citation":
+                    if ',' in dados_sinc['autor']:
+                        sob = dados_sinc['autor'].split(',')[0].upper()
+                        nme = dados_sinc['autor'].split(',')[1]
+                        txt = f"{sob},{nme}. {dados_sinc['titulo']}. " + ".".join(txt.split('.')[2:])
+                    pref = "Mestrado em" if dados_sinc['tipo_doc'] == "masterThesis" else "Doutorado em"
+                    txt = re.sub(r'\((.*?)\)', f"({pref} {dados_sinc['curso_ppg']})", txt)
                     txt = re.sub(r'(\d+)f\.', r'\1 f.', txt)
-                    txt = txt.replace("Universidade De Brasília, Universidade de Brasília", "— Universidade de Brasília")
-                    txt = txt.replace("- — Universidade de Brasília, Brasília", "— Universidade de Brasília, Brasília")
-                    elem.text = txt
+                    txt = re.sub(r'Universidade de Brasília,\s*Universidade de Brasília', '— Universidade de Brasília', txt, flags=re.IGNORECASE)
+                    txt = txt.replace("- —", "—").replace("— —", "—")
+                    txt = txt.replace("— Universidade de Brasília, Brasília, Brasília", "— Universidade de Brasília, Brasília")
 
-                # PPG (Apenas nome do curso, sem o prefixo da titulação)
-                elif (el == "description" and qu == "ppg") or (el == "publisher" and qu == "program"):
-                    elem.set("element", "description")
-                    elem.set("qualifier", "ppg")
-                    curso_ppg = dados_sinc['curso_limpo'] if dados_sinc['curso_limpo'] else aplicar_regra_caracteres(txt)
-                    elem.text = f"Programa de Pós-Graduação em {curso_ppg}"
-                
-                # Mapeamentos e Licença
-                elif qu == "resumo": elem.set("qualifier", "abstract")
-                elif qu == "abstract": elem.set("qualifier", "abstract1")
-                elif el == "date" and qu == "issued": elem.set("qualifier", "submitted")
-                elif el == "type": elem.text = {"masterThesis": "Dissertação", "doctoralThesis": "Tese"}.get(txt, txt)
-                elif el == "rights" and qu == "license": elem.text = TEXTO_LICENCA
+                elif el == "type": txt = {"masterThesis": "Dissertação", "doctoralThesis": "Tese"}.get(txt, txt)
+                elif el == "rights" and qu == "license": txt = TEXTO_LICENCA
 
+                elem.text = txt
+                novos_elementos.append(elem)
+            except Exception as e_field:
                 novos_elementos.append(elem)
 
-            except Exception as e_inner:
-                print(f"⚠️ Pulo no metadado {el}.{qu}: {e_inner}")
-                novos_elementos.append(elem)
-
-        # PASSO 3: Metadados Obrigatórios e Data Final
-        data_f = ET.Element("dcvalue", element="date", qualifier="issued")
-        data_f.text = datetime.now().strftime("%Y-%m-%d")
-        novos_elementos.append(data_f)
-
+        # FASE 3: OBRIGATÓRIOS E GRAVAÇÃO
+        data_i = ET.Element("dcvalue", element="date", qualifier="issued"); data_i.text = DATA_EXECUCAO
+        novos_elementos.append(data_i)
+        
         obrigatorios = {('rights', 'license'): TEXTO_LICENCA, ('language', 'iso'): "por", ('description', 'unidade'): ""}
         atuais = [(e.get("element"), e.get("qualifier")) for e in novos_elementos]
-        for (el, qu), val in obrigatorios.items():
-            if (el, qu) not in atuais:
-                novo = ET.Element("dcvalue", element=el, qualifier=qu)
-                if el != 'date': novo.set("language", "pt_BR")
-                novo.text = val
+        for (e, q), v in obrigatorios.items():
+            if (e, q) not in atuais:
+                novo = ET.Element("dcvalue", element=e, qualifier=q)
+                if e != 'date': novo.set("language", "pt_BR")
+                novo.text = v
                 novos_elementos.append(novo)
 
-        # Gravação final
+        # --- CORREÇÃO DA TAG RAIZ ---
         root.clear()
+        root.set("schema", "dc") # Define o esquema dc explicitamente
         for el in novos_elementos: root.append(el)
-        tree.write(caminho_arquivo, encoding="utf-8", xml_declaration=True)
-        print(f"✅ Organizado: {os.path.basename(caminho_arquivo)}")
-
+        
+        # Gravação final forçando UTF-8 e declaração XML
+        tree.write(caminho_correto, encoding="utf-8", xml_declaration=True)
+        if caminho_arquivo != caminho_correto:
+            os.remove(caminho_arquivo)
+            
+        print(f"✅ {nome_pasta} organizado.")
     except Exception as e:
-        print(f"❌ Erro crítico em {caminho_arquivo}: {e}")
+        print(f"❌ Erro crítico em {nome_pasta}: {e}")
+
+# --- RELATÓRIOS E INÍCIO ---
+
+def exibir_relatorios():
+    print("\n" + "="*80 + "\n📊 RELATÓRIO DE SINCRONIZAÇÃO (GID/UnB)\n" + "="*80)
+    print(f"\n[ ORIENTADORES ]")
+    for a in RELATORIO_ADVISORS:
+        print(f"📂 {a['arquivo']} | XML: '{a['original']}' -> {a['status']}: '{a['escolhido']}'")
+
+    print(f"\n" + "-"*50 + "\n[ KEYWORDS / ASSUNTOS ]")
+    for k in RELATORIO_KEYWORDS:
+        print(f"📂 {k['arquivo']} | XML: '{k['original']}' -> {k['status']}: '{k['escolhido']}'")
 
 def iniciar():
-    if not os.path.exists(CAMINHO_MAC):
-        print(f"❌ Pasta não encontrada: {CAMINHO_MAC}")
-        return
+    print(f"🚀 Organizador v{__version__} | UnB\nData: {DATA_EXECUCAO}")
+    if not os.path.exists(CAMINHO_MAC): return
     for raiz, _, arquivos in os.walk(CAMINHO_MAC):
         for arquivo in arquivos:
-            if arquivo == "dublin_core.xml":
+            if arquivo.lower() == "dublin_core.xml":
                 processar_xml(os.path.join(raiz, arquivo))
+    exibir_relatorios()
 
 if __name__ == "__main__":
     iniciar()
