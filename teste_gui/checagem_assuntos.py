@@ -1,146 +1,115 @@
 import os
 import csv
-import xml.etree.ElementTree as ET
-from thefuzz import process, fuzz 
-import sys 
+import sys
 import re
-import unicodedata
+import xml.etree.ElementTree as ET
+from rapidfuzz import process, fuzz, utils
 
 # --- CONFIGURAÇÕES ---
 ARQUIVO_BASE_CSV = "base_assuntos_unb.csv"
-LIMIAR_ACEITACAO_FUZZY = 85 
-
-def normalizar_para_busca(texto):
-    """Remove acentos e caracteres especiais para comparação."""
-    if not texto: return ""
-    nfkd = unicodedata.normalize('NFKD', texto)
-    texto = "".join([c for c in nfkd if not unicodedata.combining(c)])
-    texto = re.sub(r'[^a-zA-Z\s]', '', texto.lower())
-    return " ".join(texto.split())
+LIMIAR_ACEITACAO_FUZZY = 80 
 
 def carregar_base_assuntos():
-    lista_termos = []
-    dict_norm = {} 
+    """Carrega a base removendo frequências para comparação."""
+    mapa_freq = {}
+    # Resolve caminho para PyInstaller
+    if getattr(sys, 'frozen', False):
+        base_path = sys._MEIPASS
+    else:
+        base_path = os.path.dirname(os.path.abspath(__file__))
     
-    pasta_script = os.path.dirname(os.path.abspath(__file__))
-    caminho_csv = os.path.join(pasta_script, ARQUIVO_BASE_CSV)
+    caminho_csv = os.path.join(base_path, ARQUIVO_BASE_CSV)
     
     if not os.path.exists(caminho_csv):
-        return [], {}
-    
-    print(f"Lendo base de assuntos...")
+        return {}
 
     try:
         with open(caminho_csv, mode='r', encoding='utf-8-sig', errors='ignore') as f:
-            # Usamos o delimitador para separar o termo da frequência
-            # Se o CSV for: Saúde mental;199 -> ele pega apenas 'Saúde mental'
             leitor = csv.reader(f, delimiter=';')
             for linha in leitor:
-                if not linha: continue
-                
-                # Pega apenas a primeira coluna (o termo)
-                termo_bruto = linha[0].strip()
-                
-                # Caso o CSV use vírgula como separador em vez de ponto e vírgula
-                if ',' in termo_bruto and len(linha) == 1:
-                    termo_bruto = termo_bruto.split(',')[0].strip()
-                
-                # Remove aspas extras que o Excel às vezes coloca
-                termo_limpo = termo_bruto.replace('"', '').strip()
-                
-                if termo_limpo:
-                    lista_termos.append(termo_limpo)
-                    chave_norm = normalizar_para_busca(termo_limpo)
-                    dict_norm[chave_norm] = termo_limpo
-                        
-        print(f"Base carregada: {len(lista_termos)} termos (frequências ignoradas).")
-        return lista_termos, dict_norm
+                if linha:
+                    # Separa Termo de Frequência (Ex: "Saúde,150")
+                    partes = linha[0].rsplit(',', 1)
+                    if len(partes) == 2 and partes[1].isdigit():
+                        termo, freq = partes[0].strip(), int(partes[1])
+                    else:
+                        termo, freq = linha[0].strip(), 1
+                    mapa_freq[termo] = freq
+        return mapa_freq
+    except Exception:
+        return {}
 
-    except Exception as e:
-        print(f"❌ Erro ao ler CSV: {e}")
-        return [], {}
-
-def aplicar_correcao_gramatical(texto):
-    if not texto: return ""
-    preposicoes = ['da', 'de', 'do', 'das', 'dos', 'e', 'em', 'na', 'no', 'com', 'por', 'para', 'a', 'o', 'as', 'os', 'à']
-    palavras = re.sub(r'\s+', ' ', texto.strip()).split()
-    resultado = []
-    for i, palavra in enumerate(palavras):
-        p_lower = palavra.lower()
-        if p_lower in preposicoes and i > 0:
-            resultado.append(p_lower)
-        else:
-            resultado.append(palavra.capitalize())
-    return " ".join(resultado)
-
-def processar_checagem_assuntos(pasta_alvo_recebida=None):
-    print("\n" + "="*60)
-    print("AUDITORIA DE ASSUNTOS (LIMPEZA DE COLUNAS)")
-    print("="*60)
-
-    if not pasta_alvo_recebida: return
-
-    base_lista, base_dict_norm = carregar_base_assuntos()
-    tem_base = len(base_lista) > 0
+def processar_checagem_assuntos(pasta_trabalho):
+    yield "📚 Auditoria de Assuntos: Lendo documentos gerados..."
     
-    arquivos = [f for f in os.listdir(pasta_alvo_recebida) if f.lower().endswith('.xml')]
-    total_alterados = 0
+    mapa_assuntos = carregar_base_assuntos()
+    base_termos = list(mapa_assuntos.keys())
+    
+    if not base_termos:
+        yield "❌ Erro: Base de assuntos não carregada."
+        return
 
-    for arquivo in arquivos:
-        caminho = os.path.join(pasta_alvo_recebida, arquivo)
+    # Lista os arquivos XML na pasta de destino (onde o motor salvou)
+    arquivos = [f for f in os.listdir(pasta_trabalho) if f.lower().endswith('.xml')]
+    
+    for i, nome_arq in enumerate(arquivos):
+        caminho_completo = os.path.join(pasta_trabalho, nome_arq)
         try:
-            tree = ET.parse(caminho)
+            # 1. Leitura do arquivo XML
+            tree = ET.parse(caminho_completo)
             root = tree.getroot()
-            salvar = False
-            detalhes_log = []
+            
+            # 2. Coleta e Limpeza
+            tags_subject = [e for e in root.findall("dcvalue") if e.get("element") == "subject"]
+            if not tags_subject:
+                continue
 
-            for elem in root.findall("dcvalue"):
-                el, qu = elem.get("element"), elem.get("qualifier")
+            novos_termos_finais = []
+            houve_mudanca = False
+
+            for elem in tags_subject:
+                texto_original = elem.text if elem.text else ""
+                # Separa lista (A; B; C)
+                termos_xml = [t.strip() for t in re.split(r'[;.]', texto_original) if t.strip()]
                 
-                if el == "subject" and qu == "keyword":
-                    termo_xml = elem.text if elem.text else ""
-                    termo_xml_norm = normalizar_para_busca(termo_xml)
+                for t in termos_xml:
+                    # Busca candidatos no RapidFuzz
+                    matches = process.extract(
+                        t, base_termos, 
+                        limit=5, 
+                        score_cutoff=LIMIAR_ACEITACAO_FUZZY,
+                        scorer=fuzz.token_set_ratio, 
+                        processor=utils.default_process
+                    )
                     
-                    termo_final = termo_xml
-                    metodo = "Original"
-                    match_encontrado = False
+                    if matches:
+                        # CRITÉRIO: Termo mais LONGO vence, frequência desempata
+                        vencedor = sorted(matches, key=lambda x: (len(x[0]), mapa_assuntos[x[0]]), reverse=True)[0][0]
+                        novos_termos_finais.append(vencedor)
+                        if vencedor != t:
+                            houve_mudanca = True
+                            yield f"📌 {nome_arq}: {t} ➔ {vencedor}"
+                    else:
+                        # Se não encontrar match, mantém capitalizado
+                        novos_termos_finais.append(t.capitalize())
+                
+                # Remove a tag antiga para reconstruir
+                root.remove(elem)
 
-                    if tem_base:
-                        # 1. Match Normalizado
-                        if termo_xml_norm in base_dict_norm:
-                            termo_final = base_dict_norm[termo_xml_norm]
-                            metodo = "Base (Exata)"
-                            match_encontrado = True
-                        
-                        # 2. Fuzzy
-                        if not match_encontrado and len(termo_xml_norm) > 3:
-                            melhor_match, pontuacao = process.extractOne(termo_xml, base_lista, scorer=fuzz.token_sort_ratio)
-                            if pontuacao >= LIMIAR_ACEITACAO_FUZZY:
-                                termo_final = melhor_match
-                                metodo = f"Base (Fuzzy {pontuacao}%)"
-                                match_encontrado = True
-                    
-                    # 3. Gramática
-                    if not match_encontrado:
-                        termo_final = aplicar_correcao_gramatical(termo_xml)
-                        metodo = "Gramática"
-
-                    if termo_final != termo_xml:
-                        detalhes_log.append(f"   🔄 '{termo_xml}' -> '{termo_final}' [{metodo}]")
-                        elem.text = termo_final
-                        salvar = True
-
-            if salvar:
-                print(f"📄 {arquivo}:")
-                for log in detalhes_log: print(log)
-                tree.write(caminho, encoding="utf-8", xml_declaration=True)
-                total_alterados += 1
-
+            # 3. Reconstrução Garantida
+            # Mesmo que não haja "mudança" no texto, reconstruímos para padronizar as tags
+            for termo in novos_termos_finais:
+                novo_node = ET.Element("dcvalue", element="subject", qualifier="keyword")
+                novo_node.set("language", "pt_BR")
+                novo_node.text = termo
+                root.append(novo_node)
+            
+            # Força a gravação no arquivo físico
+            tree.write(caminho_completo, encoding="utf-8", xml_declaration=True)
+                
         except Exception as e:
-            print(f"⚠️ Erro ao ler {arquivo}: {e}")
+            yield f"⚠️ Erro ao processar {nome_arq}: {str(e)}"
 
-    print(f"\n Concluído. Arquivos alterados nesta etapa: {total_alterados}")
+        yield f"PROGRESSO:{int(((i + 1) / len(arquivos)) * 100)}"
 
-if __name__ == "__main__":
-    caminho_arg = sys.argv[1] if len(sys.argv) > 1 else None
-    processar_checagem_assuntos(caminho_arg)
+    yield "✅ Auditoria de Assuntos Concluída!"

@@ -1,0 +1,33 @@
+
+=== EXECUÇÃO MAC OS 02/01/2026 17:40 ===
+[MOTOR] dublin_core.xml: OK
+[ORIENT] 🔎 Auditoria de Orientadores (Criterio: Maior Frequência)...
+[ORIENT] ✅ dublin_core.xml: Santos, Silvia Renata Magalhaes Lordello Borba -> Santos, Silvia Renata Magalhães Lordello Borba
+[ASSUNT] 📚 Auditoria de Assuntos: Lendo documentos gerados...
+[ASSUNT] 📌 dublin_core.xml: Psicologia Clínica do Esporte ➔ Psicologia do esporte
+[ASSUNT] 📌 dublin_core.xml: atletas paralímpicas ➔ Atletas
+[ASSUNT] 📌 dublin_core.xml: subjetividade corporificada ➔ Subjetividade
+[ASSUNT] 📌 dublin_core.xml: negociação de gênero ➔ Educação e gênero
+[ASSUNT] 📌 dublin_core.xml: esportes de alto rendimento ➔ Sequenciamento de alto rendimento
+[ASSUNT] 📌 dublin_core.xml: Teoria da Subjetividade de González Rey ➔ Teoria da subjetividade
+[ASSUNT] ✅ Auditoria de Assuntos Concluída!
+
+=== EXECUÇÃO MAC OS 02/01/2026 17:42 ===
+[MOTOR] dublin_core.xml: OK
+[ORIENT] 🔎 Auditoria de Orientadores (Criterio: Maior Frequência)...
+[ORIENT] ✅ dublin_core.xml: Santos, Silvia Renata Magalhaes Lordello Borba -> Santos, Silvia Renata Magalhães Lordello Borba
+[ASSUNT] 📚 Auditoria de Assuntos: Lendo documentos gerados...
+[ASSUNT] 📌 dublin_core.xml: Atenção Primária à Saúde ➔ Atenção primária à saúde
+[ASSUNT] 📌 dublin_core.xml: Saúde Mental ➔ Estudantes universitários - saúde mental
+[ASSUNT] 📌 dublin_core.xml: Relações Interprofissionais ➔ Relações socioprofissionais
+[ASSUNT] ✅ Auditoria de Assuntos Concluída!
+
+=== EXECUÇÃO MAC OS 02/01/2026 17:46 ===
+[MOTOR] dublin_core.xml: OK
+[ORIENT] 🔎 Auditoria de Orientadores (Criterio: Maior Frequência)...
+[ORIENT] ✅ dublin_core.xml: Santos, Silvia Renata Magalhaes Lordello Borba -> Santos, Silvia Renata Magalhães Lordello Borba
+[ASSUNT] 📚 Auditoria de Assuntos: Lendo documentos gerados...
+[ASSUNT] 📌 dublin_core.xml: Atenção Primária à Saúde ➔ Atenção primária à saúde
+[ASSUNT] 📌 dublin_core.xml: Saúde Mental ➔ Estudantes universitários - saúde mental
+[ASSUNT] 📌 dublin_core.xml: Relações Interprofissionais ➔ Relações socioprofissionais
+[ASSUNT] ✅ Auditoria de Assuntos Concluída!

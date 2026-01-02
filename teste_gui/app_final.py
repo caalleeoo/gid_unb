@@ -1,157 +1,141 @@
+#!/usr/bin/env python3
 import FreeSimpleGUI as sg
 import os
 import shutil
 import sys
-import traceback
-import subprocess 
-import multiprocessing
 import threading
+import queue
+import time
+from datetime import datetime
+import motor_unb as core
 
-# --- LOGICA DE CAMINHOS PARA EXECUTÁVEL ---
-# Garante que o App encontre os arquivos dentro do pacote descompactado pelo PyInstaller
-if getattr(sys, 'frozen', False):
-    pasta_raiz = sys._MEIPASS
-else:
-    pasta_raiz = os.path.dirname(os.path.abspath(__file__))
-
-if pasta_raiz not in sys.path: 
-    sys.path.append(pasta_raiz)
-
-# --- IMPORTAÇÃO DO MOTOR ---
-try:
-    import motor_unb as core
-except ImportError:
-    sg.popup_error("ERRO CRÍTICO: 'motor_unb.py' não encontrado!")
-    sys.exit()
-
-def rodar_script_auxiliar(nome_script, pasta_alvo, window, titulo_log):
-    """Executa auditorias externas sem abrir novas janelas do App."""
-    caminho_script = os.path.join(pasta_raiz, nome_script)
-    window['-LOG-'].update(f"   ⏳ Iniciando {titulo_log}...\n", append=True)
-
-    if os.path.exists(caminho_script):
-        try:
-            # O parâmetro "-u" (unbuffered) força o log a aparecer imediatamente
-            # env=os.environ.copy() evita bloqueios de segurança do macOS
-            processo = subprocess.run(
-                [sys.executable, "-u", caminho_script, pasta_alvo],
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                env=os.environ.copy()
-            )
-            
-            if processo.stdout:
-                window['-LOG-'].update(f"\n📋 RELATÓRIO ({titulo_log}):\n{processo.stdout}\n", append=True)
-            if processo.stderr:
-                window['-LOG-'].update(f"⚠️ LOG INTERNO:\n{processo.stderr}\n", append=True)
-        except Exception as e:
-            window['-LOG-'].update(f"   ❌ Falha ao rodar {nome_script}: {e}\n", append=True)
-    else:
-         window['-LOG-'].update(f"   ❌ ERRO: Script não encontrado: {nome_script}\n", append=True)
-
-def executor_principal(pastas, window):
-    """Roda o processamento em Thread para não travar a interface do Mac."""
-    total_pastas = len(pastas)
-    for idx, pasta_origem in enumerate(pastas):
-        try:
-            window['-LOG-'].update("\n" + "#" * 60 + "\n", append=True)
-            window['-LOG-'].update(f"📂 PASTA [{idx+1}/{total_pastas}]: {pasta_origem}\n", append=True)
-            window['-LOG-'].update("#" * 60 + "\n", append=True)
-            
-            pasta_destino = os.path.join(pasta_origem, "Arquivos_Processados_XML")
-            if not os.path.exists(pasta_destino): 
-                os.makedirs(pasta_destino)
-                window['-LOG-'].update(f"   📁 Pasta criada: {pasta_destino}\n", append=True)
-            
-            lista_xmls = [f for f in os.listdir(pasta_origem) if f.lower().endswith('.xml')]
-            if not lista_xmls:
-                window['-LOG-'].update("   ⚠️ AVISO: Nenhum XML encontrado. Pulando...\n", append=True)
-                continue
-
-            window['-LOG-'].update(f"   🚀 Processando {len(lista_xmls)} arquivos (Motor Principal)...\n", append=True)
-            sucessos = 0
-
-            for i, nome_arquivo in enumerate(lista_xmls):
-                origem = os.path.join(pasta_origem, nome_arquivo)
-                destino = os.path.join(pasta_destino, nome_arquivo)
-                window['-PROG-'].update(current_count=i+1, max=len(lista_xmls))
-                
-                try:
-                    shutil.copy2(origem, destino)
-                    if hasattr(core, 'processar_arquivo_direto'):
-                        if core.processar_arquivo_direto(destino):
-                            sucessos += 1
-                            window['-LOG-'].update(".", append=True) 
-                        else:
-                            window['-LOG-'].update("x", append=True)
-                except Exception as e:
-                    window['-LOG-'].update(f"\n   ❌ Erro em {nome_arquivo}: {e}\n", append=True)
-
-            window['-LOG-'].update(f"\n   ✅ Motor finalizado.\n", append=True)
-            
-            # Chama as auditorias de forma assíncrona
-            rodar_script_auxiliar("checagem_de_base.py", pasta_destino, window, "Auditoria de Orientadores")
-            rodar_script_auxiliar("checagem_assuntos.py", pasta_destino, window, "Auditoria de Assuntos")
-
-        except Exception as e:
-            window['-LOG-'].update(f"\n ❌ ERRO GERAL NA PASTA: {e}\n", append=True)
+def log_central(mensagem, q=None):
+    """Gera log em arquivo e envia para a fila da interface gráfica."""
+    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    path_log = os.path.join(base_path, "LOG_PRO_UNB.txt")
     
-    window['-START-'].update(disabled=False)
-    sg.popup_ok("Processamento Concluído!")
+    timestamp = datetime.now().strftime('%H:%M:%S')
+    texto_log = f"[{timestamp}] {mensagem}"
+    
+    try:
+        with open(path_log, "a", encoding="utf-8") as f:
+            f.write(texto_log + "\n")
+    except:
+        pass # Evita erro se o arquivo estiver bloqueado
+
+    if q:
+        q.put(texto_log)
+
+def executor_pro(pastas, q, bases):
+    """Função que roda em segundo plano para não travar a interface."""
+    log_central("🚀 Iniciando processamento em lote...", q)
+    
+    for p_origem in pastas:
+        if not os.path.exists(p_origem):
+            continue
+            
+        p_destino = os.path.join(p_origem, "Arquivos_Processados_XML")
+        if os.path.exists(p_destino):
+            shutil.rmtree(p_destino)
+        os.makedirs(p_destino, exist_ok=True)
+        
+        for raiz, _, arquivos in os.walk(p_origem):
+            if "Arquivos_Processados_XML" in raiz:
+                continue
+                
+            for arq in arquivos:
+                if arq.lower() == "dublin_core.xml":
+                    caminho_orig = os.path.join(raiz, arq)
+                    
+                    # Define nome final baseado na pasta pai para evitar duplicatas
+                    nome_pasta_pai = os.path.basename(raiz)
+                    nome_final = f"{nome_pasta_pai}_dublin_core.xml"
+                    dest_final = os.path.join(p_destino, nome_final)
+                    
+                    try:
+                        shutil.copy2(caminho_orig, dest_final)
+                        # CHAMADA DO MOTOR: Agora passando as bases pré-carregadas
+                        ok, msg = core.processar_arquivo_direto(dest_final, bases)
+                        
+                        status = "✅" if ok else "❌"
+                        log_central(f"{status} {nome_final}: {msg}", q)
+                    except Exception as e:
+                        log_central(f"❌ Erro crítico em {arq}: {str(e)}", q)
+    
+    q.put("FINALIZADO")
 
 def main():
-    # Vital para o PyInstaller não abrir múltiplas janelas
-    multiprocessing.freeze_support() 
+    sg.theme('SystemDefaultForReal')
     
-    sg.theme('DarkBlue3')
     layout = [
-        [sg.Text('Sistema Integrado UnB (v5.3)', font=('Helvetica', 14, 'bold'))],
-        [sg.Text('1. Estrutura -> 2. Orientadores -> 3. Assuntos', text_color='yellow')],
-        [sg.HorizontalSeparator()],
-        [sg.Text('Selecione uma pasta:', font=('Helvetica', 10, 'bold'))],
-        [sg.Input(key='-INPUT_PATH-', expand_x=True), sg.FolderBrowse('Buscar...')],
-        [sg.Button('⬇️ Adicionar à Fila', key='-ADD-', size=(20, 1), button_color=('white', '#004080')), 
-         sg.Button('Limpar Fila', key='-CLEAR-', size=(15, 1))],
-        [sg.Listbox(values=[], size=(90, 6), key='-LISTA-', background_color='#FFF', text_color='#000')],
-        [sg.HorizontalSeparator()],
-        [sg.ProgressBar(100, orientation='h', size=(20, 20), key='-PROG-', expand_x=True)],
-        [sg.Multiline(size=(90, 15), key='-LOG-', autoscroll=True, disabled=True, background_color='#1c1e23', text_color='white', font=('Consolas', 9))],
-        [sg.Button('PROCESSAR FILA COMPLETA', key='-START-', size=(30, 2), button_color=('white', 'green')), sg.Button('Sair')]
+        [sg.Text('GID UnB Automator - High Performance', font=('Helvetica', 14, 'bold'))],
+        [sg.Text('Selecione as pastas contendo os arquivos XML:', font=('Helvetica', 10))],
+        [sg.Input(key='-IN-', expand_x=True), sg.FolderBrowse('Selecionar')],
+        [sg.Button('Adicionar Pasta'), sg.Button('Limpar Lista'), sg.Button('INICIAR', button_color=('white', '#004b8d'), size=(15, 1))],
+        [sg.Text('Fila de Processamento:')],
+        [sg.Listbox([], size=(80, 5), key='-LISTA-')],
+        [sg.Multiline(size=(80, 15), key='-LOG-', autoscroll=True, font=('Consolas', 10), background_color='#f0f0f0')]
     ]
+    
+    window = sg.Window('UnB Automator Pro v2.0', layout, finalize=True)
+    lista_pastas = []
+    q = queue.Queue()
 
-    window = sg.Window('UnB Automator v5.3', layout)
-    pastas_selecionadas = []
+    # --- PASSO 1: LOCALIZAR E CARREGAR BASES ---
+    # Detecta se está rodando como .exe (PyInstaller) ou Script
+    base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    window['-LOG-'].print("⏳ Carregando bases de dados (46k+ registros)... Por favor aguarde.")
+    window.refresh()
+    
+    # Carrega os CSVs uma única vez
+    bases_carregadas = core.carregar_bases_globais(base_dir)
+    window['-LOG-'].print(f"✔️ Bases carregadas com sucesso!")
 
     while True:
-        event, values = window.read()
-        if event in (sg.WINDOW_CLOSED, 'Sair'): break
+        event, values = window.read(timeout=100) # Timeout permite checar a Queue
         
-        if event == '-ADD-':
-            caminho = values['-INPUT_PATH-']
-            if caminho and os.path.exists(caminho):
-                if caminho not in pastas_selecionadas:
-                    pastas_selecionadas.append(caminho)
-                    window['-LISTA-'].update(pastas_selecionadas)
-                    window['-INPUT_PATH-'].update('')
+        if event in (sg.WIN_CLOSED, 'Sair'):
+            break
+            
+        if event == 'Adicionar Pasta':
+            if values['-IN-'] and values['-IN-'] not in lista_pastas:
+                lista_pastas.append(values['-IN-'])
+                window['-LISTA-'].update(lista_pastas)
+        
+        if event == 'Limpar Lista':
+            lista_pastas = []
+            window['-LISTA-'].update(lista_pastas)
+            window['-LOG-'].update("")
 
-        if event == '-CLEAR-':
-            pastas_selecionadas = []
-            window['-LISTA-'].update([])
-
-        if event == '-START-':
-            if not pastas_selecionadas:
-                sg.popup_error("A fila está vazia!")
+        if event == 'INICIAR':
+            if not lista_pastas:
+                sg.popup_error("Adicione pelo menos uma pasta!")
                 continue
             
-            window['-START-'].update(disabled=True)
-            window['-LOG-'].update("🚀 INICIANDO FLUXO (THREAD MODE)...\n", append=True)
+            # Bloqueia o botão para evitar cliques duplos
+            window['INICIAR'].update(disabled=True)
             
-            # Executa em segundo plano para não travar a janela
-            thread = threading.Thread(target=executor_principal, args=(pastas_selecionadas, window), daemon=True)
-            thread.start()
+            # Dispara a Thread passando as bases pré-carregadas
+            threading.Thread(
+                target=executor_pro, 
+                args=(lista_pastas, q, bases_carregadas), 
+                daemon=True
+            ).start()
+
+        # --- GESTÃO DA FILA DE MENSAGENS ---
+        try:
+            while True: # Tenta esvaziar a fila de mensagens acumuladas
+                mensagem = q.get_nowait()
+                if mensagem == "FINALIZADO":
+                    window['INICIAR'].update(disabled=False)
+                    sg.popup("Concluído!", "Todos os arquivos foram processados.")
+                else:
+                    window['-LOG-'].print(mensagem)
+                q.task_done()
+        except queue.Empty:
+            pass
 
     window.close()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
