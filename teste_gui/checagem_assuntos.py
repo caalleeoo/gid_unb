@@ -28,7 +28,7 @@ def carregar_base_assuntos():
     if not os.path.exists(caminho_csv):
         return [], {}
     
-    print(f"📚 Lendo base de assuntos...")
+    print(f"Lendo base de assuntos...")
 
     try:
         with open(caminho_csv, mode='r', encoding='utf-8-sig', errors='ignore') as f:
@@ -53,7 +53,7 @@ def carregar_base_assuntos():
                     chave_norm = normalizar_para_busca(termo_limpo)
                     dict_norm[chave_norm] = termo_limpo
                         
-        print(f"✅ Base carregada: {len(lista_termos)} termos (frequências ignoradas).")
+        print(f"Base carregada: {len(lista_termos)} termos (frequências ignoradas).")
         return lista_termos, dict_norm
 
     except Exception as e:
@@ -75,7 +75,7 @@ def aplicar_correcao_gramatical(texto):
 
 def processar_checagem_assuntos(pasta_alvo_recebida=None):
     print("\n" + "="*60)
-    print("🕵️  AUDITORIA DE ASSUNTOS (LIMPEZA DE COLUNAS)")
+    print("AUDITORIA DE ASSUNTOS (LIMPEZA DE COLUNAS)")
     print("="*60)
 
     if not pasta_alvo_recebida: return
@@ -139,7 +139,7 @@ def processar_checagem_assuntos(pasta_alvo_recebida=None):
         except Exception as e:
             print(f"⚠️ Erro ao ler {arquivo}: {e}")
 
-    print(f"\n✅ Concluído. Arquivos alterados nesta etapa: {total_alterados}")
+    print(f"\n Concluído. Arquivos alterados nesta etapa: {total_alterados}")
 
 if __name__ == "__main__":
     caminho_arg = sys.argv[1] if len(sys.argv) > 1 else None

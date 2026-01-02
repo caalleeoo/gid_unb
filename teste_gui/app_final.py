@@ -21,7 +21,7 @@ def rodar_script_auxiliar(nome_script, pasta_alvo, window, titulo_log):
     Função genérica para rodar scripts de checagem (subprocess).
     """
     caminho_script = os.path.join(pasta_atual, nome_script)
-    window['-LOG-'].update(f"   ⏳ Iniciando {titulo_log}...\n", append=True)
+    window['-LOG-'].update(f"    Iniciando {titulo_log}...\n", append=True)
 
     if os.path.exists(caminho_script):
         try:
@@ -33,9 +33,9 @@ def rodar_script_auxiliar(nome_script, pasta_alvo, window, titulo_log):
                 cwd=pasta_atual 
             )
             # Mostra o log
-            window['-LOG-'].update(f"\n📋 RELATÓRIO ({titulo_log}):\n{processo.stdout}\n", append=True)
+            window['-LOG-'].update(f"\n RELATÓRIO ({titulo_log}):\n{processo.stdout}\n", append=True)
             if processo.stderr:
-                window['-LOG-'].update(f"⚠️ ERROS TÉCNICOS:\n{processo.stderr}\n", append=True)
+                window['-LOG-'].update(f" ERROS TÉCNICOS:\n{processo.stderr}\n", append=True)
         except Exception as e:
             window['-LOG-'].update(f"   ❌ Falha ao rodar {nome_script}: {e}\n", append=True)
     else:

@@ -60,7 +60,7 @@ def processar_checagem(pasta_alvo_recebida=None):
         print("❌ ERRO: Nenhuma pasta alvo recebida.")
         return
 
-    print(f"📂 Auditando pasta: {pasta_trabalho}")
+    print(f" Auditando pasta: {pasta_trabalho}")
 
     if not os.path.exists(pasta_trabalho):
         print(f"❌ ERRO CRÍTICO: A pasta não existe.")
@@ -123,8 +123,8 @@ def processar_checagem(pasta_alvo_recebida=None):
             print(f"⚠️ Erro ao ler {arquivo}: {e}")
 
     print("-" * 50)
-    print(f"✅ Checagem Finalizada.")
-    print(f"📊 Arquivos corrigidos nesta etapa: {alterados} de {len(arquivos)}")
+    print(f" Checagem Finalizada.")
+    print(f" Arquivos corrigidos nesta etapa: {alterados} de {len(arquivos)}")
     print("=" * 50)
 
 if __name__ == "__main__":
