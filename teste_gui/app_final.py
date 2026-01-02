@@ -3,16 +3,17 @@ import os
 import shutil
 import sys
 import traceback
-import subprocess # <--- Importante para rodar o segundo script
+import subprocess 
 
 # --- IMPORTAÇÃO SEGURA DO MOTOR ---
+# Garante que o Python enxerga a pasta onde o script está rodando
 pasta_atual = os.path.dirname(os.path.abspath(__file__))
 if pasta_atual not in sys.path: sys.path.append(pasta_atual)
 
 try:
     import motor_unb as core
 except ImportError:
-    sg.popup_error("ERRO CRÍTICO: 'motor_unb.py' não encontrado!")
+    sg.popup_error("ERRO CRÍTICO: 'motor_unb.py' não encontrado na pasta!")
     sys.exit()
 # -------------------------
 
@@ -50,52 +51,57 @@ def processar_lote_definitivo(pasta_origem, window):
                         sucessos += 1
                     else:
                         window['-LOG-'].update(" FALHA\n", append=True)
+                else:
+                    window['-LOG-'].update(" ERRO: Função 'processar_arquivo_direto' não encontrada no motor.\n", append=True)
+
             except Exception as e:
                 window['-LOG-'].update(f" ERRO: {e}\n", append=True)
 
-        # 4. FIM DO PROCESSAMENTO - AGORA CHAMAMOS A CHECAGEM
+        # 4. FIM DO PROCESSAMENTO - CHAMADA DA CHECAGEM
         window['-LOG-'].update("-" * 50 + "\n", append=True)
-        window['-LOG-'].update("⏳ Iniciando script de checagem de base...\n", append=True)
+        window['-LOG-'].update("⏳ Iniciando auditoria de base...\n", append=True)
         
-        script_checagem = "checagem_de_base.py"
-        caminho_script = os.path.join(pasta_atual, script_checagem)
+        # Define os caminhos corretamente
+        nome_script_checagem = "checagem_de_base.py"
+        caminho_script = os.path.join(pasta_atual, nome_script_checagem)
 
         if os.path.exists(caminho_script):
+            window['-LOG-'].update("✅ Script de checagem encontrado! Executando...\n", append=True)
             try:
-                # O comando subprocess roda o script como se fosse no terminal
-                # sys.executable garante que use o mesmo Python que está rodando o App
+                # Dispara o segundo script enviando a pasta de destino como argumento
                 processo = subprocess.run(
-                    [sys.executable, caminho_script],
-                    capture_output=True, # Captura o que o script imprimir (print)
+                    [sys.executable, caminho_script, pasta_destino],
+                    capture_output=True,
                     text=True,
-                    encoding='utf-8' # Força UTF-8 para evitar erro de acentos
+                    encoding='utf-8',
+                    cwd=pasta_atual # Força rodar na pasta do aplicativo
                 )
                 
-                # Mostra o resultado da checagem na tela do App
-                window['-LOG-'].update(f"\n📋 SAÍDA DA CHECAGEM:\n{processo.stdout}\n", append=True)
+                # Exibe o que o script de checagem imprimiu
+                window['-LOG-'].update(f"\n📋 RELATÓRIO DA CHECAGEM:\n{processo.stdout}\n", append=True)
                 
                 if processo.stderr:
-                    window['-LOG-'].update(f"⚠️ ERROS NA CHECAGEM:\n{processo.stderr}\n", append=True)
-                    
+                    window['-LOG-'].update(f"⚠️ MENSAGENS TÉCNICAS:\n{processo.stderr}\n", append=True)
+
             except Exception as e:
                 window['-LOG-'].update(f"❌ Falha ao rodar checagem: {e}\n", append=True)
         else:
-             window['-LOG-'].update(f"⚠️ Aviso: Arquivo '{script_checagem}' não encontrado na pasta.\n", append=True)
+             window['-LOG-'].update(f"❌ ERRO: O arquivo '{nome_script_checagem}' não foi encontrado na pasta:\n   {pasta_atual}\n", append=True)
 
         # Fim Total
         sg.popup_ok(f"Processo Completo!\n\n1. XMLs corrigidos: {sucessos}\n2. Checagem de base finalizada.")
 
     except Exception as e:
-        sg.popup_error(f"Erro Geral: {e}")
+        sg.popup_error(f"Erro Geral no App: {e}")
         traceback.print_exc()
 
 def main():
     sg.theme('DarkBlue3')
     layout = [
         [sg.Text('Sistema Integrado UnB', font=('Helvetica', 14, 'bold'))],
-        [sg.Text('1. Processa XMLs  ->  2. Executa Checagem de Base', text_color='yellow')],
+        [sg.Text('1. Padroniza Metadados  ->  2. Valida Orientadores com Base CSV', text_color='yellow')],
         [sg.HorizontalSeparator()],
-        [sg.Text('Pasta dos XMLs:', font=('Helvetica', 10, 'bold'))],
+        [sg.Text('Pasta dos XMLs Originais:', font=('Helvetica', 10, 'bold'))],
         [sg.Input(key='-FOLDER-', expand_x=True), sg.FolderBrowse('Selecionar')],
         [sg.HorizontalSeparator()],
         [sg.Text('Log de Operações:', font=('Helvetica', 10))],
@@ -104,7 +110,7 @@ def main():
         [sg.Button('EXECUTAR ROTINA COMPLETA', key='-START-', size=(30, 2), button_color=('white', 'green')), sg.Button('Sair')]
     ]
 
-    window = sg.Window('UnB Automator v4.0', layout)
+    window = sg.Window('UnB Automator v4.1', layout)
 
     while True:
         event, values = window.read()
@@ -113,8 +119,10 @@ def main():
         if event == '-START-':
             folder = values['-FOLDER-']
             if folder:
-                window['-LOG-'].update('')
+                window['-LOG-'].update('') # Limpa o log
                 processar_lote_definitivo(folder, window)
+            else:
+                sg.popup_error("Selecione uma pasta primeiro!")
 
     window.close()
 

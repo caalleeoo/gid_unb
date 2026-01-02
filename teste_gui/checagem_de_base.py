@@ -1,121 +1,112 @@
 import os
 import csv
 import xml.etree.ElementTree as ET
-from thefuzz import process, fuzz  # Requer: pip install thefuzz
-import re
+from thefuzz import process, fuzz 
+import sys # <--- Importante para receber o caminho do App
 
 # --- CONFIGURAÇÕES ---
-PASTA_ALVO = "Arquivos_Processados_XML"
 ARQUIVO_BASE_CSV = "base_orientadores_unb.csv"
-LIMIAR_ACEITACAO_FUZZY = 88  # De 0 a 100. (88 é bem seguro)
+LIMIAR_ACEITACAO_FUZZY = 88 
 
 def carregar_base_orientadores():
-    """
-    Carrega o CSV contendo os nomes CORRETOS dos orientadores.
-    Espera-se que o CSV tenha uma coluna com os nomes.
-    """
     lista_nomes = []
-    if not os.path.exists(ARQUIVO_BASE_CSV):
-        print(f"⚠️ AVISO: Base '{ARQUIVO_BASE_CSV}' não encontrada. A validação será apenas gramatical.")
+    # O script vai procurar o CSV na mesma pasta onde o SCRIPT está salvo
+    pasta_script = os.path.dirname(os.path.abspath(__file__))
+    caminho_csv = os.path.join(pasta_script, ARQUIVO_BASE_CSV)
+    
+    if not os.path.exists(caminho_csv):
+        print(f"⚠️ AVISO: Base '{ARQUIVO_BASE_CSV}' não encontrada na pasta do script.")
         return []
     
     try:
-        with open(ARQUIVO_BASE_CSV, mode='r', encoding='utf-8') as f:
-            # Lê o arquivo ignorando erros de decodificação se houver
+        with open(caminho_csv, mode='r', encoding='utf-8') as f:
             leitor = csv.reader(f, delimiter=';') 
             for linha in leitor:
                 if linha:
-                    # Pega a primeira coluna e remove espaços extras
                     nome_limpo = linha[0].strip()
                     if nome_limpo:
                         lista_nomes.append(nome_limpo)
-        print(f"📚 Base carregada com {len(lista_nomes)} orientadores oficiais.")
+        print(f"📚 Base carregada: {len(lista_nomes)} nomes.")
         return lista_nomes
     except Exception as e:
         print(f"❌ Erro ao ler CSV: {e}")
         return []
 
 def aplicar_correcao_gramatical(texto):
-    """
-    Último recurso: Aplica Title Case (Iniciais Maiúsculas) respeitando preposições.
-    Ex: 'JOSE DA SILVA' -> 'Jose da Silva'
-    """
     if not texto: return ""
-    
-    # Palavras que devem ficar em minúsculo (preposições comuns em nomes PT-BR)
     preposicoes = ['da', 'de', 'do', 'das', 'dos', 'e', 'y']
-    
     palavras = texto.split()
     resultado = []
-    
     for i, palavra in enumerate(palavras):
         p_lower = palavra.lower()
-        # Se for preposição e não for a primeira palavra, fica minúsculo
         if p_lower in preposicoes and i > 0:
             resultado.append(p_lower)
-        # Nomes romanos (II, III, IV) ficam maiúsculos
         elif p_lower in ['ii', 'iii', 'iv', 'v', 'vi', 'jr', 'neto', 'filho']:
             resultado.append(palavra.upper() if len(palavra) < 4 else palavra.title())
         else:
             resultado.append(palavra.capitalize())
-            
     return " ".join(resultado)
 
-def processar_checagem():
+def processar_checagem(pasta_alvo_recebida=None):
     print("\n" + "="*50)
     print("🕵️  INICIANDO AUDITORIA DE ORIENTADORES (FUZZY)")
     print("="*50)
 
-    if not os.path.exists(PASTA_ALVO):
-        print(f"❌ Pasta '{PASTA_ALVO}' não encontrada.")
+    # LÓGICA DE CAMINHO INTELIGENTE:
+    # Se recebeu um caminho do App, usa ele. Se não, procura na pasta local.
+    if pasta_alvo_recebida:
+        pasta_trabalho = pasta_alvo_recebida
+    else:
+        pasta_trabalho = "Arquivos_Processados_XML"
+
+    print(f"📂 Pasta alvo: {pasta_trabalho}")
+
+    if not os.path.exists(pasta_trabalho):
+        print(f"❌ ERRO CRÍTICO: A pasta '{pasta_trabalho}' não existe.")
         return
 
     # 1. Carrega a Base Oficial
     base_oficial = carregar_base_orientadores()
     
-    arquivos = [f for f in os.listdir(PASTA_ALVO) if f.lower().endswith('.xml')]
+    arquivos = [f for f in os.listdir(pasta_trabalho) if f.lower().endswith('.xml')]
+    
+    if not arquivos:
+        print("⚠️ Nenhum XML encontrado na pasta alvo.")
+        return
+
     alterados = 0
 
     # 2. Varredura dos arquivos
     for arquivo in arquivos:
-        caminho = os.path.join(PASTA_ALVO, arquivo)
+        caminho = os.path.join(pasta_trabalho, arquivo)
         
         try:
             tree = ET.parse(caminho)
             root = tree.getroot()
             salvar = False
             
-            # Busca todos os contributors
             for elem in root.findall("dcvalue"):
                 el = elem.get("element")
                 qu = elem.get("qualifier")
                 
-                # Foco apenas no Orientador (advisor)
                 if el == "contributor" and qu == "advisor":
                     nome_original = elem.text if elem.text else ""
                     nome_escolhido = nome_original
                     metodo = "Original"
 
-                    # LÓGICA DE PRIORIDADE:
-                    
-                    # 1. Tenta Match na Base (Frequência/Existência)
                     if base_oficial:
-                        # process.extractOne acha o melhor candidato na lista
                         melhor_match, pontuacao = process.extractOne(nome_original, base_oficial, scorer=fuzz.token_sort_ratio)
                         
                         if pontuacao >= LIMIAR_ACEITACAO_FUZZY:
                             nome_escolhido = melhor_match
                             metodo = f"Base (Fuzzy {pontuacao}%)"
                         else:
-                            # Se não achou na base, aplica gramática
                             nome_escolhido = aplicar_correcao_gramatical(nome_original)
-                            metodo = "Gramática (Sem Match)"
+                            metodo = "Gramática"
                     else:
-                        # Sem base, vai direto para gramática
                         nome_escolhido = aplicar_correcao_gramatical(nome_original)
                         metodo = "Gramática (Sem Base)"
 
-                    # Se houve mudança, atualiza
                     if nome_escolhido != nome_original:
                         print(f"🔄 {arquivo} | '{nome_original}' -> '{nome_escolhido}' [{metodo}]")
                         elem.text = nome_escolhido
@@ -134,4 +125,6 @@ def processar_checagem():
     print("=" * 50)
 
 if __name__ == "__main__":
-    processar_checagem()
+    # Verifica se o caminho foi passado como argumento pelo App
+    caminho_arg = sys.argv[1] if len(sys.argv) > 1 else None
+    processar_checagem(caminho_arg)
