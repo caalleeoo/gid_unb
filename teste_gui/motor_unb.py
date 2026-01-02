@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 from rapidfuzz import process, fuzz, utils
 
-# --- CONFIGURAÇÕES E CONSTANTES ---
+# --- CONFIGURAÇÕES ---
 THRESHOLD_ADVISOR = 90
 THRESHOLD_KEYWORD = 90
 PRESERVAR = ['UnB', 'IBICT', 'Brasília', 'Distrito Federal', 'Brasil', 'PMDF', 'DF', 'Mestrado', 'Doutorado', 'MEC', 'CAPES', 'MDF', 'PP', 'PEAD', 'eMulti']
@@ -19,41 +19,31 @@ TEXTO_LICENCA = (
 )
 
 def carregar_bases_globais(base_dir):
-    """Carrega os CSVs uma única vez para memória."""
     def carregar_csv(nome, com_freq=False):
         caminho = os.path.join(base_dir, nome)
         dados = {}
         if not os.path.exists(caminho): return {}
         try:
             with open(caminho, mode='r', encoding='utf-8') as f:
-                reader = csv.reader(f, delimiter=';') # Ou ',' dependendo do seu CSV. O script v0.2 usava ',' default
-                # Tentativa de detectar delimitador se falhar
+                reader = csv.reader(f, delimiter=';')
                 if not reader: 
-                     f.seek(0)
-                     reader = csv.reader(f, delimiter=',')
-                     
+                     f.seek(0); reader = csv.reader(f, delimiter=',')
                 for linha in reader:
                     if not linha or len(linha) < 1: continue
-                    # Pula cabeçalhos comuns
                     if linha[0].lower() in ['termo', 'orientador', 'nome']: continue
-                    
                     termo = linha[0].strip()
                     if com_freq:
-                        # Tenta pegar frequencia da coluna 2, ou do split da coluna 1
                         partes = termo.rsplit(',', 1)
                         if len(linha) > 1 and linha[1].strip().isdigit():
                             dados[termo] = int(linha[1].strip())
                         elif len(partes) == 2 and partes[1].isdigit():
                             dados[partes[0].strip()] = int(partes[1])
-                        else: 
-                            dados[termo] = 1
-                    else: 
-                        dados[termo] = 0
+                        else: dados[termo] = 1
+                    else: dados[termo] = 0
         except: pass
         return dados
-
     return {
-        'advisors': carregar_csv("base_orientadores_unb.csv", com_freq=True), # Ajuste se seu CSV tem frequencia
+        'advisors': carregar_csv("base_orientadores_unb.csv", com_freq=True),
         'keywords': carregar_csv("base_assuntos_unb.csv", com_freq=True)
     }
 
@@ -63,16 +53,10 @@ def aplicar_regra_caracteres(texto):
     resultado = []
     for p in palavras:
         p_limpa = re.sub(r'[^\w]', '', p)
-        # Verifica se a palavra limpa está na lista de preservar (case insensitive)
         correta = next((f for f in PRESERVAR if f.lower() == p_limpa.lower()), None)
-        
-        if correta:
-            # Mantém a pontuação original mas usa a grafia correta (ex: unb, -> UnB,)
-            resultado.append(p.replace(p_limpa, correta))
-        elif len(p_limpa) <= 3:
-            resultado.append(p.lower())
-        else:
-            resultado.append(p.capitalize())
+        if correta: resultado.append(p.replace(p_limpa, correta))
+        elif len(p_limpa) <= 3: resultado.append(p.lower())
+        else: resultado.append(p.capitalize())
     return " ".join(resultado)
 
 def tratar_titulo(texto):
@@ -83,232 +67,135 @@ def tratar_titulo(texto):
     for i, p in enumerate(palavras):
         p_limpa = re.sub(r'[^\w]', '', p)
         correta = next((f for f in PRESERVAR if f.lower() == p_limpa.lower()), None)
-        
-        if correta:
-            res.append(p.replace(p_limpa, correta))
-        else:
-            # Capitaliza apenas a primeira palavra do título, o resto lowercase (exceto preservados)
-            res.append(p.capitalize() if i == 0 else p.lower())
-            
-    # Corrige espaços em volta de dois pontos
-    final = " ".join(res)
-    return re.sub(r'\s*:\s*', ' : ', final)
+        if correta: res.append(p.replace(p_limpa, correta))
+        else: res.append(p.capitalize() if i == 0 else p.lower())
+    return re.sub(r'\s*:\s*', ' : ', " ".join(res))
+
+def escape_xml(texto):
+    """Escapa caracteres especiais para não quebrar o XML."""
+    if not texto: return ""
+    return texto.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;").replace("'", "&apos;")
 
 def processar_arquivo_direto(caminho_xml, bases):
-    """Lógica completa do Organizador v0.2 adaptada para o Motor."""
+    """Gera XML manualmente para conformidade total com DSpace."""
     log_mudancas = []
-    
     try:
-        # Leitura tolerante a erros de encoding
         try:
             parser = ET.XMLParser(encoding="utf-8")
             tree = ET.parse(caminho_xml, parser=parser)
             root = tree.getroot()
         except ET.ParseError:
-            with open(caminho_xml, 'rb') as f:
-                data = f.read()
+            with open(caminho_xml, 'rb') as f: data = f.read()
             clean_data = re.sub(rb'[^\x09\x0A\x0D\x20-\x7E\x80-\xFF]', b'', data)
             root = ET.fromstring(clean_data)
-            tree = ET.ElementTree(root)
 
-        lista_advisors = list(bases['advisors'].keys())
-        lista_keywords = list(bases['keywords'].keys())
-        
-        # --- FASE 1: DESCOBERTA (Extrair dados para usar nas regras complexas) ---
+        lista_advisors, lista_keywords = list(bases['advisors'].keys()), list(bases['keywords'].keys())
         dados_sinc = {'autor': '', 'titulo': '', 'curso_ppg': '', 'tipo_doc': ''}
         elementos_originais = root.findall("dcvalue")
-        
+
+        # FASE 1: Extração
         for elem in elementos_originais:
             el, qu, txt = elem.get("element"), elem.get("qualifier"), elem.text or ""
-            
-            if el == "contributor" and qu == "author":
-                dados_sinc['autor'] = aplicar_regra_caracteres(txt)
-            elif el == "title":
-                dados_sinc['titulo'] = tratar_titulo(txt)
-            elif el == "type":
-                dados_sinc['tipo_doc'] = txt
+            if el == "contributor" and qu == "author": dados_sinc['autor'] = aplicar_regra_caracteres(txt)
+            elif el == "title": dados_sinc['titulo'] = tratar_titulo(txt)
+            elif el == "type": dados_sinc['tipo_doc'] = txt
             elif qu == "citation":
                 m = re.search(r'\((.*?)\)', txt)
-                if m:
-                    # Remove "Mestrado em" ou "Doutorado em" para pegar só o curso
-                    curso = re.sub(r'^(Mestrado|Doutorado)\s+em\s+', '', m.group(1), flags=re.IGNORECASE)
-                    dados_sinc['curso_ppg'] = aplicar_regra_caracteres(curso)
+                if m: dados_sinc['curso_ppg'] = aplicar_regra_caracteres(re.sub(r'^(Mestrado|Doutorado)\s+em\s+', '', m.group(1), flags=re.IGNORECASE))
 
-        # --- FASE 2: TRANSFORMAÇÃO E FILTRAGEM ---
+        # FASE 2: Processamento
         novos_elementos = []
-        
         for elem in elementos_originais:
             el, qu, txt_original = elem.get("element"), elem.get("qualifier"), elem.text or ""
             lang = elem.get("language")
+
+            if (qu and ("referees" in qu or qu.endswith("ID"))) or (el == "publisher" and qu in ["country", "initials"]): continue
+
+            # Regras de Negócio
+            if el == "description" and qu == "resumo": el="description"; qu="abstract"; log_mudancas.append("resumo->abstract")
+            elif el == "description" and qu == "abstract": el="description"; qu="abstract1"; log_mudancas.append("abstract->abstract1")
             
-            # 1. Remoção de Lixo
-            if (qu and ("referees" in qu or qu.endswith("ID"))) or (el == "publisher" and qu in ["country", "initials"]):
-                continue # Pula este elemento (não adiciona à lista final)
-
-            # 2. Renomeação de Tags (Resumos e Abstratos)
-            if el == "description" and qu == "resumo":
-                elem.set("qualifier", "abstract"); qu = "abstract"
-                log_mudancas.append("Tag: description.resumo -> abstract")
-            elif el == "description" and qu == "abstract":
-                elem.set("qualifier", "abstract1"); qu = "abstract1"
-                log_mudancas.append("Tag: description.abstract -> abstract1")
-
-            # 3. Tratamento de Programa de Pós-Graduação
             if (el == "publisher" and qu == "program") or (el == "description" and qu == "ppg"):
-                elem.set("element", "description")
-                elem.set("qualifier", "ppg")
-                txt_novo = f"Programa de Pós-Graduação em {dados_sinc['curso_ppg']}"
-                if txt_original != txt_novo:
-                    elem.text = txt_novo
-                    log_mudancas.append(f"PPG normalizado: {txt_novo}")
-                novos_elementos.append(elem)
-                continue # Já processou, vai pro próximo
+                el="description"; qu="ppg"; txt_original=f"Programa de Pós-Graduação em {dados_sinc['curso_ppg']}"
+            
+            if el == "date" and qu == "issued": qu="submitted"
 
-            # 4. Troca de Data (Issued -> Submitted)
-            if el == "date" and qu == "issued":
-                elem.set("qualifier", "submitted"); qu = "submitted"
-                novos_elementos.append(elem)
-                continue
-
-            # 5. Assuntos (Keywords) - Lógica Fuzzy
             if el == "subject" and qu in ["none", "keyword"]:
                 termos = re.split(r'[;,\.]', txt_original)
-                for t in [term.strip() for term in termos if term.strip()]:
+                for t in [x.strip() for x in termos if x.strip()]:
                     t_limpo = re.sub(r'[\{\}\[\]\<\>\\\/]', '', t)
-                    
-                    # RapidFuzz match
                     matches = process.extract(t_limpo, lista_keywords, limit=3, scorer=fuzz.token_sort_ratio, processor=utils.default_process)
-                    validos = [m for m in matches if m[1] >= THRESHOLD_KEYWORD]
-                    
-                    if validos:
-                        # Escolhe o mais frequente na base
-                        escolhido = max(validos, key=lambda x: bases['keywords'].get(x[0], 0))[0]
-                        if t != escolhido:
-                            log_mudancas.append(f"Assunto: '{t}' -> '{escolhido}'")
-                    else:
-                        escolhido = aplicar_regra_caracteres(t_limpo)
-                    
-                    # Cria novo elemento para cada assunto separado
-                    item = ET.Element("dcvalue", element="subject", qualifier="keyword")
-                    if lang: item.set("language", lang)
-                    item.text = escolhido.capitalize() # Regra do script v0.2
-                    novos_elementos.append(item)
+                    valido = max(matches, key=lambda x: bases['keywords'].get(x[0],0))[0] if matches and matches[0][1] >= THRESHOLD_KEYWORD else aplicar_regra_caracteres(t_limpo)
+                    if t != valido: log_mudancas.append(f"Subject: {t}->{valido}")
+                    novos_elementos.append({'el': 'subject', 'qu': 'keyword', 'lang': lang, 'txt': valido.capitalize()})
                 continue
 
-            # 6. Orientadores
             if el == "contributor" and qu == "advisor":
-                m_a = process.extractOne(txt_original, lista_advisors, scorer=fuzz.token_sort_ratio, processor=utils.default_process)
-                if m_a and m_a[1] >= THRESHOLD_ADVISOR:
-                    txt_final = m_a[0]
-                    if txt_original != txt_final:
-                        log_mudancas.append(f"Orientador: '{txt_original}' -> '{txt_final}'")
-                else:
-                    txt_final = aplicar_regra_caracteres(txt_original)
-                elem.text = txt_final
-                novos_elementos.append(elem)
-                continue
-            
-            # 7. Co-Orientadores
+                match = process.extractOne(txt_original, lista_advisors, scorer=fuzz.token_sort_ratio, processor=utils.default_process)
+                txt_final = match[0] if match and match[1] >= THRESHOLD_ADVISOR else aplicar_regra_caracteres(txt_original)
+                if txt_original != txt_final: log_mudancas.append(f"Advisor: {txt_original}->{txt_final}")
+                novos_elementos.append({'el': el, 'qu': qu, 'lang': lang, 'txt': txt_final}); continue
+
             if el == "contributor" and qu and qu.startswith("advisor-co"):
-                elem.set("qualifier", "advisorco")
-                elem.text = aplicar_regra_caracteres(txt_original)
-                novos_elementos.append(elem)
-                continue
+                novos_elementos.append({'el': el, 'qu': 'advisorco', 'lang': lang, 'txt': aplicar_regra_caracteres(txt_original)}); continue
 
-            # 8. Autor (Padronização)
-            if el == "contributor" and qu == "author":
-                elem.text = dados_sinc['autor']
-                novos_elementos.append(elem)
-                continue
-
-            # 9. Título (Padronização)
-            if el == "title":
-                elem.text = dados_sinc['titulo']
-                novos_elementos.append(elem)
-                continue
-
-            # 10. Citação (Citation) - A Regra Complexa
-            if qu == "citation":
-                txt_citacao = txt_original
-                # Tenta formatar ABNT: SOBRENOME, Nome. Titulo.
-                if ',' in dados_sinc['autor']:
-                    try:
-                        partes_autor = dados_sinc['autor'].split(',')
-                        sob = partes_autor[0].upper()
-                        nme = partes_autor[1].strip()
-                        # Reconstrói a citação mantendo a paginação (parte final após o titulo)
-                        # Assume que a citação original tem o formato antigo para tentar aproveitar o final
-                        partes_citacao = txt_original.split('.')
-                        resto = ".".join(partes_citacao[2:]) if len(partes_citacao) > 2 else ""
-                        txt_citacao = f"{sob}, {nme}. {dados_sinc['titulo']}. {resto}"
-                    except:
-                        pass # Falha na formatação, mantém o melhor esforço
-                
-                # Ajusta (Mestrado/Doutorado em X)
+            if el == "contributor" and qu == "author": txt_original = dados_sinc['autor']
+            elif el == "title": txt_original = dados_sinc['titulo']
+            elif el == "type": txt_original = {"masterThesis": "Dissertação", "doctoralThesis": "Tese"}.get(txt_original, txt_original)
+            elif el == "rights" and qu == "license": txt_original = TEXTO_LICENCA
+            
+            elif qu == "citation":
+                try:
+                    if ',' in dados_sinc['autor']:
+                        p = dados_sinc['autor'].split(',')
+                        t_cit = f"{p[0].upper()}, {p[1].strip()}. {dados_sinc['titulo']}."
+                        if len(txt_original.split('.')) > 2: t_cit += ".".join(txt_original.split('.')[2:])
+                        txt_original = t_cit
+                except: pass
                 pref = "Mestrado em" if dados_sinc['tipo_doc'] == "masterThesis" else "Doutorado em"
-                txt_citacao = re.sub(r'\((.*?)\)', f"({pref} {dados_sinc['curso_ppg']})", txt_citacao)
-                
-                # Ajusta paginação "123f."
-                txt_citacao = re.sub(r'(\d+)f\.', r'\1 f.', txt_citacao)
-                
-                # Remove duplicação de "Universidade de Brasília"
-                txt_citacao = re.sub(r'Universidade de Brasília,\s*Universidade de Brasília', '— Universidade de Brasília', txt_citacao, flags=re.IGNORECASE)
-                txt_citacao = txt_citacao.replace("- —", "—").replace("— —", "—")
-                txt_citacao = txt_citacao.replace("— Universidade de Brasília, Brasília, Brasília", "— Universidade de Brasília, Brasília")
-                
-                elem.text = txt_citacao
-                log_mudancas.append("Citação padronizada")
-                novos_elementos.append(elem)
-                continue
+                txt_original = re.sub(r'\((.*?)\)', f"({pref} {dados_sinc['curso_ppg']})", txt_original)
+                txt_original = re.sub(r'(\d+)f\.', r'\1 f.', txt_original)
+                txt_original = re.sub(r'Universidade de Brasília,\s*Universidade de Brasília', '— Universidade de Brasília', txt_original, flags=re.IGNORECASE)
+                txt_original = txt_original.replace("- —", "—").replace("— —", "—").replace("— Universidade de Brasília, Brasília, Brasília", "— Universidade de Brasília, Brasília")
 
-            # 11. Tipo de Documento
-            if el == "type":
-                mapa_tipo = {"masterThesis": "Dissertação", "doctoralThesis": "Tese"}
-                elem.text = mapa_tipo.get(txt_original, txt_original)
-                novos_elementos.append(elem)
-                continue
+            novos_elementos.append({'el': el, 'qu': qu, 'lang': lang, 'txt': txt_original})
 
-            # 12. Direitos / Licença
-            if el == "rights" and qu == "license":
-                elem.text = TEXTO_LICENCA
-                novos_elementos.append(elem)
-                continue
+        # FASE 3: Obrigatórios
+        novos_elementos.append({'el': 'date', 'qu': 'issued', 'lang': None, 'txt': datetime.now().strftime("%Y-%m-%d")})
+        obrigatorios = [
+            {'el': 'rights', 'qu': 'license', 'lang': 'pt_BR', 'txt': TEXTO_LICENCA},
+            {'el': 'language', 'qu': 'iso', 'lang': 'pt_BR', 'txt': 'por'},
+            {'el': 'description', 'qu': 'unidade', 'lang': 'pt_BR', 'txt': 'Faculdade de Ciência da Informação'}
+        ]
+        
+        tags_existentes = [(x['el'], x['qu']) for x in novos_elementos]
+        for ob in obrigatorios:
+            if (ob['el'], ob['qu']) not in tags_existentes:
+                novos_elementos.append(ob)
 
-            # Se não caiu em nenhuma regra acima, mantém o elemento (apenas limpo de erros)
-            novos_elementos.append(elem)
+        # --- GRAVAÇÃO MANUAL E SEGURA (STRING BUILDER) ---
+        # Isso evita qualquer erro de biblioteca XML ou cabeçalho incorreto
+        xml_lines = ['<?xml version="1.0" encoding="utf-8" standalone="no"?>']
+        xml_lines.append('<dublin_core schema="dc">')
+        
+        for item in novos_elementos:
+            if not item['txt']: continue # DSpace não gosta de tags vazias
+            
+            # Escapa caracteres proibidos no XML (&, <, >)
+            texto_seguro = escape_xml(item['txt'])
+            qualifier = item['qu'] if item['qu'] else "none"
+            lang_attr = f' language="{item["lang"]}"' if item.get('lang') else ''
+            
+            line = f'  <dcvalue element="{item["el"]}" qualifier="{qualifier}"{lang_attr}>{texto_seguro}</dcvalue>'
+            xml_lines.append(line)
+            
+        xml_lines.append('</dublin_core>')
+        
+        with open(caminho_xml, "w", encoding="utf-8") as f:
+            f.write("\n".join(xml_lines))
 
-        # --- FASE 3: ELEMENTOS OBRIGATÓRIOS E NOVOS ---
-        
-        # Insere a data de hoje como "issued"
-        data_hj = ET.Element("dcvalue", element="date", qualifier="issued")
-        data_hj.text = datetime.now().strftime("%Y-%m-%d")
-        novos_elementos.append(data_hj)
-        
-        # Verifica obrigatórios
-        obrigatorios = {
-            ('rights', 'license'): TEXTO_LICENCA,
-            ('language', 'iso'): "por",
-            ('description', 'unidade'): "Faculdade de Ciência da Informação" # Default ou vazio se preferir
-        }
-        
-        atuais_tags = [(e.get("element"), e.get("qualifier")) for e in novos_elementos]
-        
-        for (e, q), v in obrigatorios.items():
-            if (e, q) not in atuais_tags:
-                novo = ET.Element("dcvalue", element=e, qualifier=q)
-                if e != 'date': novo.set("language", "pt_BR")
-                novo.text = v
-                novos_elementos.append(novo)
-
-        # --- GRAVAÇÃO ---
-        root.clear()
-        root.set("schema", "dc")
-        for el in novos_elementos: root.append(el)
-        
-        tree.write(caminho_xml, encoding="utf-8", xml_declaration=True)
-        
-        msg_final = " | ".join(log_mudancas) if log_mudancas else "OK (Processado completo)"
-        return True, msg_final
+        msg = " | ".join(log_mudancas) if log_mudancas else "OK"
+        return True, msg
 
     except Exception as e:
         return False, f"Erro: {str(e)}"
