@@ -21,3 +21,23 @@
 [19:02:20] 🚀 Iniciando processamento (Estrutura: ./Arquivos_Processados_XML/dublin_core.xml)...
 [19:02:20] ✅ [LauraRojasVidaurreta_TESE] dublin_core.xml: Orientador: 'Santos, Silvia Renata Magalhaes Lordello Borba' -> 'Santos, Silvia Renata Magalhães Lordello Borba' | Assunto: 'esportes de alto rendimento' -> 'Esportes de alto rendimento'
 [19:02:21] 🏁 Processo finalizado pelo usuário.
+[19:08:12] ⏳ Aguarde: Carregando bases de dados (46k+ registros)...
+[19:08:13] ✔️ Bases prontas para uso!
+[19:08:32] 🚀 Iniciando processamento (Estrutura: ./Arquivos_Processados_XML/dublin_core.xml)...
+[19:08:32] ✅ [LeticiaNeves_DISSERT] dublin_core.xml: Assunto: 'violência por parceiro íntimo' -> 'Violências por parceiros íntimos' | Assunto: 'artes' -> 'Artes'
+[19:08:32] ✅ [MariaElizabethMori_TESE] dublin_core.xml: OK (Sem alterações relevantes)
+[19:08:34] 🏁 Processo finalizado pelo usuário.
+[19:09:38] 🚀 Iniciando processamento (Estrutura: ./Arquivos_Processados_XML/dublin_core.xml)...
+[19:09:38] ✅ [LeticiaNeves_DISSERT] dublin_core.xml: Assunto: 'violência por parceiro íntimo' -> 'Violências por parceiros íntimos' | Assunto: 'artes' -> 'Artes'
+[19:09:38] ✅ [MariaElizabethMori_TESE] dublin_core.xml: OK (Sem alterações relevantes)
+[19:09:45] 🏁 Processo finalizado pelo usuário.
+[19:10:22] 🚀 Iniciando processamento (Estrutura: ./Arquivos_Processados_XML/dublin_core.xml)...
+[19:10:22] ✅ [LeticiaDeAmorimMotaCoelho_DISSERT] dublin_core.xml: Autor ajustado: Coelho, Leticia De Amorim Mota -> Coelho, Leticia de Amorim Mota | Orientador: 'Santos, Silvia Renata Magalhaes Lordello Borba' -> 'Santos, Silvia Renata Magalhães Lordello Borba' | Assunto: 'Atenção Primária à Saúde' -> 'Atenção primária à saúde' | Assunto: 'Saúde Mental' -> 'Saúde mental'
+[19:10:22] ✅ [LauraRojasVidaurreta_TESE] dublin_core.xml: Orientador: 'Santos, Silvia Renata Magalhaes Lordello Borba' -> 'Santos, Silvia Renata Magalhães Lordello Borba' | Assunto: 'esportes de alto rendimento' -> 'Esportes de alto rendimento'
+[19:10:29] 🏁 Processo finalizado pelo usuário.
+[19:20:49] ⏳ Aguarde: Carregando bases de dados (46k+ registros)...
+[19:20:49] ✔️ Bases prontas para uso!
+[19:21:04] 🚀 Iniciando processamento (Estrutura: ./Arquivos_Processados_XML/dublin_core.xml)...
+[19:21:04] ✅ [LauraRojasVidaurreta_TESE] dublin_core.xml: Orientador: 'Santos, Silvia Renata Magalhaes Lordello Borba' -> 'Santos, Silvia Renata Magalhães Lordello Borba' | Tag: description.resumo -> abstract | Tag: description.abstract -> abstract1 | PPG normalizado: Programa de Pós-Graduação em Psicologia Clínica e Cultura | Assunto: 'esportes de alto rendimento' -> 'Esportes de alto rendimento' | Citação padronizada
+[19:21:04] ✅ [LeticiaDeAmorimMotaCoelho_DISSERT] dublin_core.xml: Orientador: 'Santos, Silvia Renata Magalhaes Lordello Borba' -> 'Santos, Silvia Renata Magalhães Lordello Borba' | Tag: description.resumo -> abstract | Tag: description.abstract -> abstract1 | PPG normalizado: Programa de Pós-Graduação em eMulti | Assunto: 'Atenção Primária à Saúde' -> 'Atenção primária à saúde' | Assunto: 'Saúde Mental' -> 'Saúde mental' | Citação padronizada
+[19:21:06] 🏁 Processo finalizado pelo usuário.
