@@ -2,7 +2,7 @@ import os
 import csv
 import xml.etree.ElementTree as ET
 from thefuzz import process, fuzz 
-import sys # <--- Importante para receber o caminho do App
+import sys 
 
 # --- CONFIGURAÇÕES ---
 ARQUIVO_BASE_CSV = "base_orientadores_unb.csv"
@@ -10,12 +10,13 @@ LIMIAR_ACEITACAO_FUZZY = 88
 
 def carregar_base_orientadores():
     lista_nomes = []
-    # O script vai procurar o CSV na mesma pasta onde o SCRIPT está salvo
+    # Busca o CSV na mesma pasta deste script
     pasta_script = os.path.dirname(os.path.abspath(__file__))
     caminho_csv = os.path.join(pasta_script, ARQUIVO_BASE_CSV)
     
     if not os.path.exists(caminho_csv):
         print(f"⚠️ AVISO: Base '{ARQUIVO_BASE_CSV}' não encontrada na pasta do script.")
+        print(f"   (Esperado em: {caminho_csv})")
         return []
     
     try:
@@ -26,7 +27,7 @@ def carregar_base_orientadores():
                     nome_limpo = linha[0].strip()
                     if nome_limpo:
                         lista_nomes.append(nome_limpo)
-        print(f"📚 Base carregada: {len(lista_nomes)} nomes.")
+        print(f"📚 Base carregada: {len(lista_nomes)} orientadores oficiais.")
         return lista_nomes
     except Exception as e:
         print(f"❌ Erro ao ler CSV: {e}")
@@ -49,20 +50,20 @@ def aplicar_correcao_gramatical(texto):
 
 def processar_checagem(pasta_alvo_recebida=None):
     print("\n" + "="*50)
-    print("🕵️  INICIANDO AUDITORIA DE ORIENTADORES (FUZZY)")
+    print("🕵️  AUDITORIA DE ORIENTADORES (FUZZY)")
     print("="*50)
 
-    # LÓGICA DE CAMINHO INTELIGENTE:
-    # Se recebeu um caminho do App, usa ele. Se não, procura na pasta local.
+    # Lógica de Caminho: Usa o que o App mandou
     if pasta_alvo_recebida:
         pasta_trabalho = pasta_alvo_recebida
     else:
-        pasta_trabalho = "Arquivos_Processados_XML"
+        print("❌ ERRO: Nenhuma pasta alvo recebida.")
+        return
 
-    print(f"📂 Pasta alvo: {pasta_trabalho}")
+    print(f"📂 Auditando pasta: {pasta_trabalho}")
 
     if not os.path.exists(pasta_trabalho):
-        print(f"❌ ERRO CRÍTICO: A pasta '{pasta_trabalho}' não existe.")
+        print(f"❌ ERRO CRÍTICO: A pasta não existe.")
         return
 
     # 1. Carrega a Base Oficial
@@ -76,7 +77,7 @@ def processar_checagem(pasta_alvo_recebida=None):
 
     alterados = 0
 
-    # 2. Varredura dos arquivos
+    # 2. Varredura
     for arquivo in arquivos:
         caminho = os.path.join(pasta_trabalho, arquivo)
         
@@ -99,7 +100,7 @@ def processar_checagem(pasta_alvo_recebida=None):
                         
                         if pontuacao >= LIMIAR_ACEITACAO_FUZZY:
                             nome_escolhido = melhor_match
-                            metodo = f"Base (Fuzzy {pontuacao}%)"
+                            metodo = f"Base ({pontuacao}%)"
                         else:
                             nome_escolhido = aplicar_correcao_gramatical(nome_original)
                             metodo = "Gramática"
@@ -108,7 +109,9 @@ def processar_checagem(pasta_alvo_recebida=None):
                         metodo = "Gramática (Sem Base)"
 
                     if nome_escolhido != nome_original:
-                        print(f"🔄 {arquivo} | '{nome_original}' -> '{nome_escolhido}' [{metodo}]")
+                        print(f"🔄 {arquivo}")
+                        print(f"   DE:   '{nome_original}'")
+                        print(f"   PARA: '{nome_escolhido}' [{metodo}]")
                         elem.text = nome_escolhido
                         salvar = True
             
@@ -125,6 +128,6 @@ def processar_checagem(pasta_alvo_recebida=None):
     print("=" * 50)
 
 if __name__ == "__main__":
-    # Verifica se o caminho foi passado como argumento pelo App
+    # Recebe apenas 1 argumento: a pasta dos XMLs
     caminho_arg = sys.argv[1] if len(sys.argv) > 1 else None
     processar_checagem(caminho_arg)

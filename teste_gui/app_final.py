@@ -6,7 +6,6 @@ import traceback
 import subprocess 
 
 # --- IMPORTAÇÃO SEGURA DO MOTOR ---
-# Garante que o Python enxerga a pasta onde o script está rodando
 pasta_atual = os.path.dirname(os.path.abspath(__file__))
 if pasta_atual not in sys.path: sys.path.append(pasta_atual)
 
@@ -17,112 +16,144 @@ except ImportError:
     sys.exit()
 # -------------------------
 
-def processar_lote_definitivo(pasta_origem, window):
+def rodar_script_auxiliar(nome_script, pasta_alvo, window, titulo_log):
+    """
+    Função genérica para rodar scripts de checagem (subprocess).
+    """
+    caminho_script = os.path.join(pasta_atual, nome_script)
+    window['-LOG-'].update(f"   ⏳ Iniciando {titulo_log}...\n", append=True)
+
+    if os.path.exists(caminho_script):
+        try:
+            processo = subprocess.run(
+                [sys.executable, caminho_script, pasta_alvo],
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                cwd=pasta_atual 
+            )
+            # Mostra o log
+            window['-LOG-'].update(f"\n📋 RELATÓRIO ({titulo_log}):\n{processo.stdout}\n", append=True)
+            if processo.stderr:
+                window['-LOG-'].update(f"⚠️ ERROS TÉCNICOS:\n{processo.stderr}\n", append=True)
+        except Exception as e:
+            window['-LOG-'].update(f"   ❌ Falha ao rodar {nome_script}: {e}\n", append=True)
+    else:
+         window['-LOG-'].update(f"   ❌ ERRO: Script '{nome_script}' não encontrado.\n", append=True)
+
+def processar_uma_pasta(pasta_origem, window, contador_pasta, total_pastas):
     try:
+        window['-LOG-'].update("\n" + "#" * 60 + "\n", append=True)
+        window['-LOG-'].update(f" PASTA [{contador_pasta}/{total_pastas}]: {pasta_origem}\n", append=True)
+        window['-LOG-'].update("#" * 60 + "\n", append=True)
+        
         # 1. Cria pasta de destino
         pasta_destino = os.path.join(pasta_origem, "Arquivos_Processados_XML")
-        if not os.path.exists(pasta_destino): os.makedirs(pasta_destino)
+        if not os.path.exists(pasta_destino): 
+            os.makedirs(pasta_destino)
+            window['-LOG-'].update(f"    Pasta criada: {pasta_destino}\n", append=True)
         
         # 2. Lista XMLs
         lista_xmls = [f for f in os.listdir(pasta_origem) if f.lower().endswith('.xml')]
         
         if not lista_xmls:
-            sg.popup_error("Nenhum XML encontrado nesta pasta!")
-            return
+            window['-LOG-'].update("    AVISO: Nenhum XML encontrado. Pulando...\n", append=True)
+            return 0
 
-        window['-LOG-'].update(f"🚀 Iniciando processamento de {len(lista_xmls)} ficheiros...\n", append=True)
+        window['-LOG-'].update(f"    Processando {len(lista_xmls)} arquivos (Motor Principal)...\n", append=True)
         sucessos = 0
 
-        # 3. Loop Principal (Executa o Motor UNB)
+        # 3. ETAPA 1: MOTOR UNB (Estrutura e Limpeza)
         for i, nome_arquivo in enumerate(lista_xmls):
             origem = os.path.join(pasta_origem, nome_arquivo)
             destino = os.path.join(pasta_destino, nome_arquivo)
-            
             window['-PROG-'].update(current_count=i+1, max=len(lista_xmls))
-            window['-LOG-'].update(f"[{i+1}] {nome_arquivo}...", append=True)
-
+            
             try:
                 shutil.copy2(origem, destino)
-                
                 if hasattr(core, 'processar_arquivo_direto'):
-                    resultado = core.processar_arquivo_direto(destino)
-                    if resultado:
-                        window['-LOG-'].update(" OK\n", append=True)
+                    if core.processar_arquivo_direto(destino):
                         sucessos += 1
+                        window['-LOG-'].update(".", append=True) 
                     else:
-                        window['-LOG-'].update(" FALHA\n", append=True)
+                        window['-LOG-'].update("x", append=True)
                 else:
-                    window['-LOG-'].update(" ERRO: Função 'processar_arquivo_direto' não encontrada no motor.\n", append=True)
-
+                    window['-LOG-'].update("E", append=True)
             except Exception as e:
-                window['-LOG-'].update(f" ERRO: {e}\n", append=True)
+                window['-LOG-'].update(f"\n    Erro arquivo {nome_arquivo}: {e}\n", append=True)
 
-        # 4. FIM DO PROCESSAMENTO - CHAMADA DA CHECAGEM
-        window['-LOG-'].update("-" * 50 + "\n", append=True)
-        window['-LOG-'].update("⏳ Iniciando auditoria de base...\n", append=True)
-        
-        # Define os caminhos corretamente
-        nome_script_checagem = "checagem_de_base.py"
-        caminho_script = os.path.join(pasta_atual, nome_script_checagem)
+        window['-LOG-'].update(f"\n    Motor finalizado ({sucessos} arqs).\n", append=True)
 
-        if os.path.exists(caminho_script):
-            window['-LOG-'].update("✅ Script de checagem encontrado! Executando...\n", append=True)
-            try:
-                # Dispara o segundo script enviando a pasta de destino como argumento
-                processo = subprocess.run(
-                    [sys.executable, caminho_script, pasta_destino],
-                    capture_output=True,
-                    text=True,
-                    encoding='utf-8',
-                    cwd=pasta_atual # Força rodar na pasta do aplicativo
-                )
-                
-                # Exibe o que o script de checagem imprimiu
-                window['-LOG-'].update(f"\n📋 RELATÓRIO DA CHECAGEM:\n{processo.stdout}\n", append=True)
-                
-                if processo.stderr:
-                    window['-LOG-'].update(f"⚠️ MENSAGENS TÉCNICAS:\n{processo.stderr}\n", append=True)
+        # 4. ETAPA 2: CHECAGEM DE ORIENTADORES
+        rodar_script_auxiliar("checagem_de_base.py", pasta_destino, window, "Auditoria de Orientadores")
 
-            except Exception as e:
-                window['-LOG-'].update(f"❌ Falha ao rodar checagem: {e}\n", append=True)
-        else:
-             window['-LOG-'].update(f"❌ ERRO: O arquivo '{nome_script_checagem}' não foi encontrado na pasta:\n   {pasta_atual}\n", append=True)
+        # 5. ETAPA 3: CHECAGEM DE ASSUNTOS (NOVO!)
+        rodar_script_auxiliar("checagem_assuntos.py", pasta_destino, window, "Auditoria de Assuntos")
 
-        # Fim Total
-        sg.popup_ok(f"Processo Completo!\n\n1. XMLs corrigidos: {sucessos}\n2. Checagem de base finalizada.")
+        return sucessos
 
     except Exception as e:
-        sg.popup_error(f"Erro Geral no App: {e}")
+        window['-LOG-'].update(f"\n ERRO GERAL NA PASTA: {e}\n", append=True)
         traceback.print_exc()
+        return 0
 
 def main():
     sg.theme('DarkBlue3')
     layout = [
-        [sg.Text('Sistema Integrado UnB', font=('Helvetica', 14, 'bold'))],
-        [sg.Text('1. Padroniza Metadados  ->  2. Valida Orientadores com Base CSV', text_color='yellow')],
+        [sg.Text('Sistema Integrado UnB (3 Etapas)', font=('Helvetica', 14, 'bold'))],
+        [sg.Text('1. Estrutura  ->  2. Orientadores  ->  3. Assuntos', text_color='yellow')],
         [sg.HorizontalSeparator()],
-        [sg.Text('Pasta dos XMLs Originais:', font=('Helvetica', 10, 'bold'))],
-        [sg.Input(key='-FOLDER-', expand_x=True), sg.FolderBrowse('Selecionar')],
+        
+        [sg.Text('Selecione uma pasta:', font=('Helvetica', 10, 'bold'))],
+        [sg.Input(key='-INPUT_PATH-', expand_x=True), sg.FolderBrowse('Buscar...', target='-INPUT_PATH-')],
+        [sg.Button('⬇️ Adicionar à Fila', key='-ADD-', size=(20, 1), button_color=('white', '#004080')), 
+         sg.Button('Limpar Fila', key='-CLEAR-', size=(15, 1))],
+        
+        [sg.Text('Fila de Processamento:', font=('Helvetica', 10))],
+        [sg.Listbox(values=[], size=(90, 6), key='-LISTA-', enable_events=True, background_color='#FFF', text_color='#000')],
+        
         [sg.HorizontalSeparator()],
-        [sg.Text('Log de Operações:', font=('Helvetica', 10))],
+        
+        [sg.Text('Progresso:', font=('Helvetica', 10))],
         [sg.ProgressBar(100, orientation='h', size=(20, 20), key='-PROG-', expand_x=True)],
-        [sg.Multiline(size=(80, 20), key='-LOG-', autoscroll=True, disabled=True, background_color='#1c1e23', text_color='white', font=('Consolas', 9))],
-        [sg.Button('EXECUTAR ROTINA COMPLETA', key='-START-', size=(30, 2), button_color=('white', 'green')), sg.Button('Sair')]
+        [sg.Multiline(size=(90, 15), key='-LOG-', autoscroll=True, disabled=True, background_color='#1c1e23', text_color='white', font=('Consolas', 9))],
+        
+        [sg.Button('PROCESSAR FILA COMPLETA', key='-START-', size=(30, 2), button_color=('white', 'green')), sg.Button('Sair')]
     ]
 
-    window = sg.Window('UnB Automator v4.1', layout)
+    window = sg.Window('UnB Automator v5.1', layout)
+    pastas_selecionadas = []
 
     while True:
         event, values = window.read()
         if event in (sg.WINDOW_CLOSED, 'Sair'): break
         
+        if event == '-ADD-':
+            caminho = values['-INPUT_PATH-']
+            if caminho and os.path.exists(caminho):
+                if caminho not in pastas_selecionadas:
+                    pastas_selecionadas.append(caminho)
+                    window['-LISTA-'].update(pastas_selecionadas)
+                    window['-INPUT_PATH-'].update('')
+                else:
+                    sg.popup_error("Esta pasta já está na lista!")
+
+        if event == '-CLEAR-':
+            pastas_selecionadas = []
+            window['-LISTA-'].update([])
+
         if event == '-START-':
-            folder = values['-FOLDER-']
-            if folder:
-                window['-LOG-'].update('') # Limpa o log
-                processar_lote_definitivo(folder, window)
-            else:
-                sg.popup_error("Selecione uma pasta primeiro!")
+            if not pastas_selecionadas:
+                sg.popup_error("A fila está vazia!")
+                continue
+            
+            window['-LOG-'].update(" INICIANDO FLUXO DE 3 ETAPAS...\n", append=True)
+            total = len(pastas_selecionadas)
+            
+            for i, pasta in enumerate(pastas_selecionadas):
+                processar_uma_pasta(pasta, window, i+1, total)
+            
+            sg.popup_ok(f"Processamento Concluído!")
 
     window.close()
 
