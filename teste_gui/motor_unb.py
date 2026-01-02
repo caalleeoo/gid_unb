@@ -50,7 +50,9 @@ def aplicar_regra_caracteres(texto):
     return " ".join(resultado)
 
 def processar_arquivo_direto(caminho_xml, bases):
-    """Processa o XML com RapidFuzz e tratamento de erros robusto."""
+    """Processa o XML com RapidFuzz e gera log detalhado das alterações."""
+    log_mudancas = [] # Lista para acumular o histórico deste arquivo
+    
     try:
         # Tenta ler o arquivo tratando possíveis erros de codificação ou caracteres ilegais
         try:
@@ -58,10 +60,8 @@ def processar_arquivo_direto(caminho_xml, bases):
             tree = ET.parse(caminho_xml, parser=parser)
             root = tree.getroot()
         except ET.ParseError:
-            # Se falhar, tenta uma limpeza bruta de caracteres de controle
             with open(caminho_xml, 'rb') as f:
                 data = f.read()
-            # Remove caracteres não-imprimíveis (resiliência contra XML corrompido)
             clean_data = re.sub(rb'[^\x09\x0A\x0D\x20-\x7E\x80-\xFF]', b'', data)
             root = ET.fromstring(clean_data)
             tree = ET.ElementTree(root)
@@ -72,34 +72,50 @@ def processar_arquivo_direto(caminho_xml, bases):
         elementos_originais = root.findall("dcvalue")
         novos_elementos = []
 
-        # FASE 1: Sincronização
+        # FASE 1: Sincronização (Extração de metadados)
         for elem in elementos_originais:
             el, qu, txt = elem.get("element"), elem.get("qualifier"), elem.text or ""
             if el == "contributor" and qu == "author":
-                dados_sinc['autor'] = aplicar_regra_caracteres(txt)
+                novo_autor = aplicar_regra_caracteres(txt)
+                dados_sinc['autor'] = novo_autor
+                if txt != novo_autor:
+                    log_mudancas.append(f"Autor ajustado: {txt} -> {novo_autor}")
+            
             elif el == "title":
-                dados_sinc['titulo'] = txt.strip().capitalize()
+                novo_titulo = txt.strip().capitalize()
+                dados_sinc['titulo'] = novo_titulo
+                # Títulos geralmente mudam apenas capitalização, log opcional para não poluir
+                
             elif qu == "citation":
                 m = re.search(r'\((.*?)\)', txt)
                 if m:
                     curso = re.sub(r'^(Mestrado|Doutorado)\s+em\s+', '', m.group(1), flags=re.IGNORECASE)
                     dados_sinc['curso_ppg'] = aplicar_regra_caracteres(curso)
 
-        # FASE 2: Transformação (CORRIGIDO: token_sort_ratio)
+        # FASE 2: Transformação
         for elem in elementos_originais:
-            el, qu, txt = elem.get("element"), elem.get("qualifier"), elem.text or ""
+            el, qu, txt_original = elem.get("element"), elem.get("qualifier"), elem.text or ""
             lang = elem.get("language")
 
+            # Remove campos indesejados
             if (qu and ("referees" in qu or qu.endswith("ID"))) or (el == "publisher" and qu in ["country", "initials"]):
                 continue
 
+            # --- PROCESSAMENTO DE ASSUNTOS (KEYWORDS) ---
             if el == "subject" and qu in ["none", "keyword"]:
-                termos = re.split(r'[;,\.]', txt)
+                termos = re.split(r'[;,\.]', txt_original)
                 for t in [term.strip() for term in termos if term.strip()]:
-                    # O RapidFuzz usa snake_case: token_sort_ratio
                     matches = process.extract(t, lista_keywords, limit=3, scorer=fuzz.token_sort_ratio, processor=utils.default_process)
                     validos = [m for m in matches if m[1] >= THRESHOLD_KEYWORD]
-                    escolhido = max(validos, key=lambda x: bases['keywords'].get(x[0], 0))[0] if validos else aplicar_regra_caracteres(t)
+                    
+                    if validos:
+                        # Critério de desempate: Frequência na base
+                        escolhido = max(validos, key=lambda x: bases['keywords'].get(x[0], 0))[0]
+                        if t != escolhido:
+                            log_mudancas.append(f"Assunto: '{t}' -> '{escolhido}'")
+                    else:
+                        escolhido = aplicar_regra_caracteres(t)
+                        # Opcional: Logar normalização simples se desejar
                     
                     item = ET.Element("dcvalue", element="subject", qualifier="keyword")
                     if lang: item.set("language", lang)
@@ -107,15 +123,24 @@ def processar_arquivo_direto(caminho_xml, bases):
                     novos_elementos.append(item)
                 continue
 
+            # --- PROCESSAMENTO DE ORIENTADORES ---
+            txt_final = txt_original
             if el == "contributor" and qu == "advisor":
-                # Uso do extractOne para performance máxima em orientadores
-                m_a = process.extractOne(txt, lista_advisors, scorer=fuzz.token_sort_ratio, processor=utils.default_process)
-                txt = m_a[0] if m_a and m_a[1] >= THRESHOLD_ADVISOR else aplicar_regra_caracteres(txt)
+                m_a = process.extractOne(txt_original, lista_advisors, scorer=fuzz.token_sort_ratio, processor=utils.default_process)
+                if m_a and m_a[1] >= THRESHOLD_ADVISOR:
+                    if txt_original != m_a[0]:
+                        txt_final = m_a[0]
+                        log_mudancas.append(f"Orientador: '{txt_original}' -> '{txt_final}'")
+                else:
+                    txt_final = aplicar_regra_caracteres(txt_original)
             
-            elif el == "contributor" and qu == "author": txt = dados_sinc['autor']
-            elif el == "title": txt = dados_sinc['titulo']
+            # Atualiza Autor e Título com os dados da Fase 1
+            elif el == "contributor" and qu == "author": 
+                txt_final = dados_sinc['autor']
+            elif el == "title": 
+                txt_final = dados_sinc['titulo']
 
-            elem.text = txt
+            elem.text = txt_final
             novos_elementos.append(elem)
 
         # FASE 3: Gravação Final
@@ -123,7 +148,14 @@ def processar_arquivo_direto(caminho_xml, bases):
         root.set("schema", "dc")
         for el in novos_elementos: root.append(el)
         tree.write(caminho_xml, encoding="utf-8", xml_declaration=True)
-        return True, "OK"
+        
+        # PREPARA A MENSAGEM DE RETORNO
+        if log_mudancas:
+            msg_final = " | ".join(log_mudancas)
+        else:
+            msg_final = "OK (Sem alterações relevantes)"
+            
+        return True, msg_final
 
     except Exception as e:
         return False, f"Erro: {str(e)}"
