@@ -1,21 +1,21 @@
 import os
 import re
 import csv
-import unicodedata
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from thefuzz import fuzz, process
 
-# --- CONFIGURAÇÕES ---
-__version__ = "0.3 (Manual ZIP)"
-CAMINHO_RAIZ = '/Users/leonardorcarvalho/Library/CloudStorage/OneDrive-Pessoal/Documentos/GitHub/ts-para-alteracao'
+# --- CONFIGURAÇÕES DE CAMINHO ---
+__version__ = "0.2"
+CAMINHO_MAC = '/Users/leonardorcarvalho/Library/CloudStorage/OneDrive-Pessoal/Documentos/GitHub/ts-para-alteracao'
 CAMINHO_CSV_ADVISORS = '/Users/leonardorcarvalho/Library/CloudStorage/OneDrive-Pessoal/Documentos/GitHub/gid-docs/testefinal/advisor-ppg.csv'
 CAMINHO_CSV_KEYWORDS = '/Users/leonardorcarvalho/Library/CloudStorage/OneDrive-Pessoal/Documentos/GitHub/gid-docs/testefinal/keywords.csv'
 
-# Limiares
+# Limiares de similaridade (0-100)
 THRESHOLD_ADVISOR = 90
 THRESHOLD_KEYWORD = 90
 
+# Siglas e nomes próprios protegidos
 PRESERVAR = ['UnB', 'IBICT', 'Brasília', 'Distrito Federal', 'Brasil', 'PMDF', 'DF', 'Mestrado', 'Doutorado', 'MEC', 'CAPES', 'MDF', 'PP', 'PEAD']
 
 TEXTO_LICENCA = (
@@ -27,10 +27,12 @@ TEXTO_LICENCA = (
 )
 
 DATA_EXECUCAO = datetime.now().strftime("%Y-%m-%d")
+
+# Listas globais para relatórios
 RELATORIO_ADVISORS = []
 RELATORIO_KEYWORDS = []
 
-# --- FUNÇÕES ---
+# --- FUNÇÕES DE APOIO ---
 
 def carregar_csv_dict(caminho, com_frequencia=False):
     dados = {}
@@ -80,7 +82,7 @@ def tratar_titulo(texto):
             res.append(p.capitalize() if i == 0 else p.lower())
     return re.sub(r'\s*:\s*', ' : ', " ".join(res))
 
-# --- PROCESSAMENTO XML ---
+# --- PROCESSAMENTO PRINCIPAL ---
 
 def processar_xml(caminho_arquivo):
     diretorio_item = os.path.dirname(caminho_arquivo)
@@ -106,10 +108,8 @@ def processar_xml(caminho_arquivo):
             elif qu == "citation":
                 m = re.search(r'\((.*?)\)', txt)
                 if m:
-                    # Limpa repetições de "Mestrado em"
-                    raw_curso = m.group(1)
-                    curso_limpo = re.sub(r'(Mestrado|Doutorado)\s+em\s+', '', raw_curso, flags=re.IGNORECASE).strip()
-                    dados_sinc['curso_ppg'] = aplicar_regra_caracteres(curso_limpo)
+                    curso = re.sub(r'^(Mestrado|Doutorado)\s+em\s+', '', m.group(1), flags=re.IGNORECASE)
+                    dados_sinc['curso_ppg'] = aplicar_regra_caracteres(curso)
 
         # FASE 2: TRANSFORMAÇÃO
         for elem in elementos_originais:
@@ -117,7 +117,6 @@ def processar_xml(caminho_arquivo):
             lang = elem.get("language")
 
             try:
-                # Exclusões
                 if (qu and ("referees" in qu or qu.endswith("ID"))) or (el == "publisher" and qu in ["country", "initials"]):
                     continue
 
@@ -126,8 +125,8 @@ def processar_xml(caminho_arquivo):
 
                 if (el == "publisher" and qu == "program") or (el == "description" and qu == "ppg"):
                     elem.set("element", "description"); elem.set("qualifier", "ppg")
+                    txt = f"Programa de Pós-Graduação em {dados_sinc['curso_ppg']}"
                     el, qu = "description", "ppg"
-                    txt = f"Programa de Pós-Graduação em {dados_sinc['curso_ppg']}" if dados_sinc['curso_ppg'] else "PREENCHER"
 
                 if el == "date" and qu == "issued":
                     elem.set("qualifier", "submitted"); qu = "submitted"
@@ -164,82 +163,63 @@ def processar_xml(caminho_arquivo):
                         nme = dados_sinc['autor'].split(',')[1]
                         txt = f"{sob},{nme}. {dados_sinc['titulo']}. " + ".".join(txt.split('.')[2:])
                     pref = "Mestrado em" if dados_sinc['tipo_doc'] == "masterThesis" else "Doutorado em"
-                    curso_f = dados_sinc['curso_ppg'] if dados_sinc['curso_ppg'] else "PREENCHER"
-                    txt = re.sub(r'\((.*?)\)', f"({pref} {curso_f})", txt)
+                    txt = re.sub(r'\((.*?)\)', f"({pref} {dados_sinc['curso_ppg']})", txt)
                     txt = re.sub(r'(\d+)f\.', r'\1 f.', txt)
                     txt = re.sub(r'Universidade de Brasília,\s*Universidade de Brasília', '— Universidade de Brasília', txt, flags=re.IGNORECASE)
-                    txt = txt.replace("- —", "—").replace("— —", "—").replace("— Universidade de Brasília, Brasília, Brasília", "— Universidade de Brasília, Brasília")
+                    txt = txt.replace("- —", "—").replace("— —", "—")
+                    txt = txt.replace("— Universidade de Brasília, Brasília, Brasília", "— Universidade de Brasília, Brasília")
 
                 elif el == "type": txt = {"masterThesis": "Dissertação", "doctoralThesis": "Tese"}.get(txt, txt)
                 elif el == "rights" and qu == "license": txt = TEXTO_LICENCA
 
                 elem.text = txt
                 novos_elementos.append(elem)
-            except: novos_elementos.append(elem)
+            except Exception as e_field:
+                novos_elementos.append(elem)
 
-        # FASE 3: OBRIGATÓRIOS
+        # FASE 3: OBRIGATÓRIOS E GRAVAÇÃO
         data_i = ET.Element("dcvalue", element="date", qualifier="issued"); data_i.text = DATA_EXECUCAO
         novos_elementos.append(data_i)
         
-        obrigatorios = {('rights', 'license'): TEXTO_LICENCA, ('language', 'iso'): "por", ('description', 'unidade'): "PREENCHER"}
-        if not any(e.get("qualifier") == "ppg" for e in novos_elementos):
-             ppg_n = ET.Element("dcvalue", element="description", qualifier="ppg"); ppg_n.set("language", "pt_BR"); ppg_n.text = "PREENCHER"; novos_elementos.append(ppg_n)
-
+        obrigatorios = {('rights', 'license'): TEXTO_LICENCA, ('language', 'iso'): "por", ('description', 'unidade'): ""}
         atuais = [(e.get("element"), e.get("qualifier")) for e in novos_elementos]
         for (e, q), v in obrigatorios.items():
             if (e, q) not in atuais:
-                n = ET.Element("dcvalue", element=e, qualifier=q)
-                if e != 'date': n.set("language", "pt_BR")
-                n.text = v
-                novos_elementos.append(n)
+                novo = ET.Element("dcvalue", element=e, qualifier=q)
+                if e != 'date': novo.set("language", "pt_BR")
+                novo.text = v
+                novos_elementos.append(novo)
 
-        # CORREÇÃO DA TAG RAIZ E GRAVAÇÃO
+        # --- CORREÇÃO DA TAG RAIZ ---
         root.clear()
-        root.set("schema", "dc") # Vital para o DSpace
+        root.set("schema", "dc") # Define o esquema dc explicitamente
         for el in novos_elementos: root.append(el)
         
-        # Grava como dublin_core.xml e remove o antigo se o nome for diferente
+        # Gravação final forçando UTF-8 e declaração XML
         tree.write(caminho_correto, encoding="utf-8", xml_declaration=True)
-        if caminho_arquivo != caminho_correto: os.remove(caminho_arquivo)
+        if caminho_arquivo != caminho_correto:
+            os.remove(caminho_arquivo)
             
-        print(f"✅ {nome_pasta} processado.")
-    except Exception as e: print(f"❌ Erro em {nome_pasta}: {e}")
+        print(f"✅ {nome_pasta} organizado.")
+    except Exception as e:
+        print(f"❌ Erro crítico em {nome_pasta}: {e}")
 
-# --- SANITIZAÇÃO DE PASTAS ---
-
-def normalizar_nome_pasta(nome):
-    """Remove caracteres que quebram o Linux."""
-    nome_norm = unicodedata.normalize('NFC', nome) # Padrão Linux
-    nome_norm = nome_norm.strip().replace(" ", "_")
-    nome_norm = re.sub(r'[^\w\-]', '', nome_norm) # Apenas letras, numeros, _ e -
-    return nome_norm
-
-def sanitizar_diretorios(caminho_raiz):
-    print("🧹 Verificando nomes de pastas...")
-    for item in os.listdir(caminho_raiz):
-        caminho_antigo = os.path.join(caminho_raiz, item)
-        if os.path.isdir(caminho_antigo) and not item.startswith('.'):
-            novo_nome = normalizar_nome_pasta(item)
-            caminho_novo = os.path.join(caminho_raiz, novo_nome)
-            
-            if caminho_antigo != caminho_novo:
-                try:
-                    os.rename(caminho_antigo, caminho_novo)
-                    print(f"   Corrigido: {item} -> {novo_nome}")
-                except: pass
+# --- RELATÓRIOS E INÍCIO ---
 
 def exibir_relatorios():
-    print("\n" + "="*80 + "\n📊 RESUMO GID/UnB\n" + "="*80)
-    print(f"Orientadores processados: {len(RELATORIO_ADVISORS)}")
-    print(f"Keywords processadas: {len(RELATORIO_KEYWORDS)}")
+    print("\n" + "="*80 + "\n📊 RELATÓRIO DE SINCRONIZAÇÃO (GID/UnB)\n" + "="*80)
+    print(f"\n[ ORIENTADORES ]")
+    for a in RELATORIO_ADVISORS:
+        print(f"📂 {a['arquivo']} | XML: '{a['original']}' -> {a['status']}: '{a['escolhido']}'")
+
+    print(f"\n" + "-"*50 + "\n[ KEYWORDS / ASSUNTOS ]")
+    for k in RELATORIO_KEYWORDS:
+        print(f"📂 {k['arquivo']} | XML: '{k['original']}' -> {k['status']}: '{k['escolhido']}'")
 
 def iniciar():
-    print(f"🚀 Iniciando GID v{__version__} | {DATA_EXECUCAO}")
-    if not os.path.exists(CAMINHO_RAIZ): return
-    
-    sanitizar_diretorios(CAMINHO_RAIZ) # Prepara as pastas antes
-    
-    for raiz, _, arquivos in os.walk(CAMINHO_RAIZ):
+    print(f"🚀 Organizador v{__version__} | UnB\nData: {DATA_EXECUCAO}")
+    if not os.path.exists(CAMINHO_MAC): return
+    for raiz, _, arquivos in os.walk(CAMINHO_MAC):
         for arquivo in arquivos:
             if arquivo.lower() == "dublin_core.xml":
                 processar_xml(os.path.join(raiz, arquivo))
