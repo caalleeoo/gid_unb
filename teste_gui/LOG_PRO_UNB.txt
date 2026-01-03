@@ -118,3 +118,40 @@
 [14:58:56] ℹ️ Iniciando processamento (SOBRESCREVENDO) de 2 arquivos...
 [14:58:56] ✅ LuizaDeLimaPereira_DISSERT: Processado com Regras v0.2
 [14:58:56] ✅ NicolasPhilippeBalduinoNogueira_DISSERT: Processado com Regras v0.2
+[15:10:21] ℹ️ Iniciando processamento (SOBRESCREVENDO) de 3 arquivos...
+[15:10:21] ✅ FlaviaGeordanaDamascenoAraujo_DISSERT: Processado com Regras v0.2
+[15:10:21] ✅ NicolasPhilippeBalduinoNogueira_DISSERT: Processado com Regras v0.2
+[15:10:21] ✅ LuizaDeLimaPereira_DISSERT: Processado com Regras v0.2
+[15:14:50] ℹ️ Iniciando processamento (SOBRESCREVENDO) de 3 arquivos...
+[15:14:50] ✅ FlaviaGeordanaDamascenoAraujo_DISSERT: Processado.
+[15:14:50]    ↳ 👤 Orientador [BASE]: 'Leite, Jose Roberto De Souza De Almeida' -> 'Leite, José  Roberto de Souza de Almeida,1'
+[15:14:50]    ↳ 🔑 Assunto [GRAMÁTICA]: 'triptofilina' -> 'Triptofilina'
+[15:14:50]    ↳ 🔑 Assunto [BASE]: 'peptídeo bioativos' -> 'Peptídeos bioativos,3'
+[15:14:50]    ↳ 🔑 Assunto [GRAMÁTICA]: 'antioxidante' -> 'Antioxidante'
+[15:14:50]    ↳ 🔑 Assunto [GRAMÁTICA]: 'anfíbios' -> 'Anfíbios'
+[15:14:50]    ↳ 🔑 Assunto [BASE]: 'estresse oxidativo' -> 'Estresse oxidativo,23'
+[15:14:50]    ↳ 🔑 Assunto [GRAMÁTICA]: 'PaT-2' -> 'Pat-2'
+[15:14:50] ✅ NicolasPhilippeBalduinoNogueira_DISSERT: Processado.
+[15:14:50]    ↳ 👤 Orientador [BASE]: 'Silva, Felipe Von Glehn' -> 'Silva, Felipe Von Glehn,3'
+[15:14:50]    ↳ 🔑 Assunto [GRAMÁTICA]: 'Distúrbios do espectro da neuromielite óptica' -> 'Distúrbios do Espectro da Neuromielite Óptica'
+[15:14:50]    ↳ 🔑 Assunto [BASE]: 'Doenças autoimunes' -> 'Doenças autoimunes,7'
+[15:14:50]    ↳ 🔑 Assunto [BASE]: 'Políticas de saúde' -> 'Políticas de saúde,25'
+[15:14:50] ✅ LuizaDeLimaPereira_DISSERT: Processado.
+[15:14:50]    ↳ 🔑 Assunto [GRAMÁTICA]: 'Herpes vírus' -> 'Herpes Vírus'
+[15:14:50]    ↳ 🔑 Assunto [GRAMÁTICA]: 'inibidores TNF' -> 'Inibidores tnf'
+[15:18:08] ℹ️ Iniciando processamento (SOBRESCREVENDO) de 3 arquivos...
+[15:18:08] ✅ FlaviaGeordanaDamascenoAraujo_DISSERT: Processado.
+[15:18:08]    ↳ 👤 Orientador [BASE]: 'Leite, Jose Roberto De Souza De Almeida' -> 'Leite, José Roberto de Souza de Almeida'
+[15:18:08]    ↳ 🔑 Assunto [BASE]: 'triptofilina' -> 'Triptofilinas'
+[15:18:08]    ↳ 🔑 Assunto [BASE]: 'peptídeo bioativos' -> 'Peptídeos bioativos'
+[15:18:08]    ↳ 🔑 Assunto [BASE]: 'antioxidante' -> 'Antioxidantes'
+[15:18:08]    ↳ 🔑 Assunto [BASE]: 'anfíbios' -> 'Anfíbio'
+[15:18:08]    ↳ 🔑 Assunto [BASE]: 'estresse oxidativo' -> 'Estresse oxidativo'
+[15:18:08]    ↳ 🔑 Assunto [GRAMÁTICA]: 'PaT-2' -> 'Pat-2'
+[15:18:08] ✅ NicolasPhilippeBalduinoNogueira_DISSERT: Processado.
+[15:18:08]    ↳ 🔑 Assunto [GRAMÁTICA]: 'Distúrbios do espectro da neuromielite óptica' -> 'Distúrbios do Espectro da Neuromielite Óptica'
+[15:18:08]    ↳ 🔑 Assunto [BASE]: 'Políticas de saúde' -> 'Política de saúde'
+[15:18:08] ✅ LuizaDeLimaPereira_DISSERT: Processado.
+[15:18:08]    ↳ 👤 Orientador [BASE]: 'Araujo, Carla Nunes De' -> 'Araújo, Carla Nunes de'
+[15:18:08]    ↳ 🔑 Assunto [GRAMÁTICA]: 'Herpes vírus' -> 'Herpes Vírus'
+[15:18:08]    ↳ 🔑 Assunto [GRAMÁTICA]: 'inibidores TNF' -> 'Inibidores tnf'
