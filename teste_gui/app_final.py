@@ -34,7 +34,9 @@ def contar_total_xml(pastas):
     total = 0
     for p in pastas:
         for raiz, _, arquivos in os.walk(p):
+            # Ignora pastas de backup ou processamento antigo se existirem
             if "Arquivos_Processados_XML" in raiz: continue
+            
             for f in arquivos:
                 if f.lower() == "dublin_core.xml":
                     total += 1
@@ -50,32 +52,27 @@ def executor_pro(pastas, q, bases):
         return
 
     q.put(("CONFIG_BARRA", total_arquivos))
-    log_central(f"Iniciando processamento de {total_arquivos} arquivos...", q)
+    log_central(f"Iniciando processamento (SOBRESCREVENDO) de {total_arquivos} arquivos...", q)
     
     processados = 0
     
     for p_origem in pastas:
         if not os.path.exists(p_origem): continue
             
-        p_destino = os.path.join(p_origem, "Arquivos_Processados_XML")
-        if os.path.exists(p_destino): shutil.rmtree(p_destino)
-        os.makedirs(p_destino, exist_ok=True)
-        
+        # Percorre a estrutura de pastas
         for raiz, _, arquivos in os.walk(p_origem):
+            # Proteção para não processar backups antigos se existirem na pasta
             if "Arquivos_Processados_XML" in raiz: continue
                 
             for arq in arquivos:
                 if arq.lower() == "dublin_core.xml":
-                    caminho_orig = os.path.join(raiz, arq)
+                    caminho_xml = os.path.join(raiz, arq)
                     nome_pasta_pai = os.path.basename(raiz)
-                    nome_final = f"{nome_pasta_pai}_dublin_core.xml"
-                    dest_final = os.path.join(p_destino, nome_final)
                     
                     try:
-                        shutil.copy2(caminho_orig, dest_final)
-                        
-                        # Processamento
-                        ok, msg = core.processar_arquivo_direto(dest_final, bases)
+                        # --- MODIFICAÇÃO: Processa DIRETAMENTE o arquivo original ---
+                        # O motor_unb abre, modifica e salva no mesmo caminho
+                        ok, msg = core.processar_arquivo_direto(caminho_xml, bases)
                         tipo_log = "SUCESSO" if ok else "ERRO"
                         
                         log_central(f"{nome_pasta_pai}: {msg}", q, tipo_log)
@@ -120,12 +117,12 @@ def main():
         [sg.Multiline(size=(60, 15), key='-LOG-', autoscroll=True, font=('Consolas', 9), background_color='#FAFAFA', disabled=True)],
         
         [sg.Column([[
-            sg.Button('🚀 INICIAR PROCESSAMENTO', key='INICIAR', font=('Segoe UI', 12, 'bold'), button_color=('white', '#28a745'), size=(30, 2), pad=(0, 15))
+            sg.Button('🚀 PROCESSAR E SUBSTITUIR', key='INICIAR', font=('Segoe UI', 12, 'bold'), button_color=('white', '#D9534F'), size=(30, 2), pad=(0, 15))
         ]], justification='center')]
     ]
 
     layout = [
-        [sg.Text('GID UnB Automator Pro', font=('Segoe UI', 18, 'bold'), text_color='#003366'), sg.Push(), sg.Text('v2.2', text_color='grey')],
+        [sg.Text('GID UnB Automator Pro', font=('Segoe UI', 18, 'bold'), text_color='#003366'), sg.Push(), sg.Text('v2.3 (Overwrite)', text_color='grey')],
         [sg.HorizontalSeparator()],
         [sg.Column(coluna_esquerda, element_justification='l', vertical_alignment='top', expand_y=True),
          sg.VSeparator(),
@@ -193,6 +190,10 @@ def main():
                 sg.popup_error("A lista de pastas está vazia!")
                 continue
             
+            # Aviso de segurança para sobrescrita
+            if sg.popup_ok_cancel("ATENÇÃO: Este modo irá SOBRESCREVER os arquivos originais 'dublin_core.xml'.\n\nVocê tem certeza?", title="Confirmação de Sobrescrita", icon='warning') != 'OK':
+                continue
+
             window['INICIAR'].update(disabled=True)
             window['ADD'].update(disabled=True)
             window['CLR'].update(disabled=True)
@@ -222,7 +223,7 @@ def main():
                 
                 elif tipo == "PROGRESSO":
                     window['-BARRA-'].update(dados)
-                    # Atualiza texto de status usando a variável cache, não o objeto
+                    # Atualiza texto de status usando a variável cache
                     window['-STATUS-'].update(f"Processando: {dados}/{total_arquivos_cache} arquivos...")
 
                 elif tipo == "ERRO_FATAL":
@@ -231,11 +232,10 @@ def main():
 
                 elif tipo == "FINALIZADO":
                     window['-STATUS-'].update(f"Concluído! {dados} arquivos processados.")
-                    # Completa a barra visualmente
                     if total_arquivos_cache > 0:
                          window['-BARRA-'].update(total_arquivos_cache) 
                     
-                    sg.popup(f"Sucesso! \n{dados} arquivos foram processados e salvos.", title="Fim")
+                    sg.popup(f"Sucesso! \n{dados} arquivos foram atualizados (sobrescritos).", title="Fim")
                     
                     # Reabilita interface
                     window['INICIAR'].update(disabled=False)

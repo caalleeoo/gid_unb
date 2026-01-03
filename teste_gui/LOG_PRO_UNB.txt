@@ -115,3 +115,6 @@
 [14:46:55] ✅ NicolasPhilippeBalduinoNogueira_DISSERT: Processado com Regras v0.2
 [14:48:22] ℹ️ Iniciando processamento de 1 arquivos...
 [14:48:23] ✅ NicolasPhilippeBalduinoNogueira_DISSERT: Processado com Regras v0.2
+[14:58:56] ℹ️ Iniciando processamento (SOBRESCREVENDO) de 2 arquivos...
+[14:58:56] ✅ LuizaDeLimaPereira_DISSERT: Processado com Regras v0.2
+[14:58:56] ✅ NicolasPhilippeBalduinoNogueira_DISSERT: Processado com Regras v0.2
