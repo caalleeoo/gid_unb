@@ -7,12 +7,16 @@ from datetime import datetime
 from thefuzz import fuzz, process
 
 # --- CONFIGURAÇÕES ---
-__version__ = "0.3 (Manual ZIP)"
-CAMINHO_RAIZ = '/Users/leonardorcarvalho/Library/CloudStorage/OneDrive-Pessoal/Documentos/GitHub/ts-para-alteracao'
+__version__ = "0.5 (Memória de Caminho)"
+
+# Arquivo para salvar o último caminho usado (criado automaticamente)
+ARQUIVO_CONFIG = ".gid_last_path"
+
+# OBS: Caminhos dos arquivos de referência
 CAMINHO_CSV_ADVISORS = '/Users/leonardorcarvalho/Library/CloudStorage/OneDrive-Pessoal/Documentos/GitHub/gid-docs/testefinal/advisor-ppg.csv'
 CAMINHO_CSV_KEYWORDS = '/Users/leonardorcarvalho/Library/CloudStorage/OneDrive-Pessoal/Documentos/GitHub/gid-docs/testefinal/keywords.csv'
 
-# Limiares
+# Limiares de Semelhança (0 a 100)
 THRESHOLD_ADVISOR = 90
 THRESHOLD_KEYWORD = 90
 
@@ -30,11 +34,35 @@ DATA_EXECUCAO = datetime.now().strftime("%Y-%m-%d")
 RELATORIO_ADVISORS = []
 RELATORIO_KEYWORDS = []
 
-# --- FUNÇÕES ---
+# --- FUNÇÕES DE MEMÓRIA ---
+
+def obter_caminho_salvo():
+    """Lê o último caminho salvo no arquivo de configuração."""
+    if os.path.exists(ARQUIVO_CONFIG):
+        try:
+            with open(ARQUIVO_CONFIG, 'r', encoding='utf-8') as f:
+                caminho = f.read().strip()
+                if os.path.exists(caminho):
+                    return caminho
+        except:
+            pass
+    return None
+
+def salvar_caminho(caminho):
+    """Salva o caminho válido para a próxima execução."""
+    try:
+        with open(ARQUIVO_CONFIG, 'w', encoding='utf-8') as f:
+            f.write(caminho)
+    except Exception as e:
+        print(f"[AVISO] Não foi possível salvar a preferência de caminho: {e}")
+
+# --- FUNÇÕES AUXILIARES ---
 
 def carregar_csv_dict(caminho, com_frequencia=False):
     dados = {}
-    if not os.path.exists(caminho): return {}
+    if not os.path.exists(caminho): 
+        print(f"[AVISO] CSV não encontrado: {caminho}")
+        return {}
     try:
         with open(caminho, mode='r', encoding='utf-8') as f:
             reader = csv.reader(f)
@@ -45,7 +73,8 @@ def carregar_csv_dict(caminho, com_frequencia=False):
                 termo = linha[0].strip()
                 freq = int(linha[1].strip()) if com_frequencia and len(linha) > 1 else 0
                 dados[termo] = freq
-    except: pass
+    except Exception as e:
+        print(f"[ERRO] Falha ao ler CSV {caminho}: {e}")
     return dados
 
 BASE_ADVISORS = carregar_csv_dict(CAMINHO_CSV_ADVISORS)
@@ -106,7 +135,6 @@ def processar_xml(caminho_arquivo):
             elif qu == "citation":
                 m = re.search(r'\((.*?)\)', txt)
                 if m:
-                    # Limpa repetições de "Mestrado em"
                     raw_curso = m.group(1)
                     curso_limpo = re.sub(r'(Mestrado|Doutorado)\s+em\s+', '', raw_curso, flags=re.IGNORECASE).strip()
                     dados_sinc['curso_ppg'] = aplicar_regra_caracteres(curso_limpo)
@@ -139,7 +167,9 @@ def processar_xml(caminho_arquivo):
                         m_k = process.extract(t_limpo, list(BASE_KEYWORDS.keys()), limit=3, scorer=fuzz.token_sort_ratio)
                         validos = [m for m in m_k if m[1] >= THRESHOLD_KEYWORD]
                         escolhido = max(validos, key=lambda x: BASE_KEYWORDS[x[0]])[0] if validos else aplicar_regra_caracteres(t_limpo)
+                        
                         RELATORIO_KEYWORDS.append({'arquivo': nome_pasta, 'original': t, 'escolhido': escolhido, 'status': "CSV" if validos else "ORIGINAL"})
+                        
                         item = ET.Element("dcvalue", element="subject", qualifier="keyword")
                         if lang: item.set("language", lang)
                         item.text = escolhido.capitalize()
@@ -160,9 +190,11 @@ def processar_xml(caminho_arquivo):
                 elif el == "title": txt = dados_sinc['titulo']
                 elif qu == "citation":
                     if ',' in dados_sinc['autor']:
-                        sob = dados_sinc['autor'].split(',')[0].upper()
-                        nme = dados_sinc['autor'].split(',')[1]
-                        txt = f"{sob},{nme}. {dados_sinc['titulo']}. " + ".".join(txt.split('.')[2:])
+                        parts = dados_sinc['autor'].split(',')
+                        if len(parts) >= 2:
+                            sob = parts[0].upper()
+                            nme = parts[1]
+                            txt = f"{sob},{nme}. {dados_sinc['titulo']}. " + ".".join(txt.split('.')[2:])
                     pref = "Mestrado em" if dados_sinc['tipo_doc'] == "masterThesis" else "Doutorado em"
                     curso_f = dados_sinc['curso_ppg'] if dados_sinc['curso_ppg'] else "PREENCHER"
                     txt = re.sub(r'\((.*?)\)', f"({pref} {curso_f})", txt)
@@ -195,10 +227,9 @@ def processar_xml(caminho_arquivo):
 
         # CORREÇÃO DA TAG RAIZ E GRAVAÇÃO
         root.clear()
-        root.set("schema", "dc") # Vital para o DSpace
+        root.set("schema", "dc")
         for el in novos_elementos: root.append(el)
         
-        # Grava como dublin_core.xml e remove o antigo se o nome for diferente
         tree.write(caminho_correto, encoding="utf-8", xml_declaration=True)
         if caminho_arquivo != caminho_correto: os.remove(caminho_arquivo)
             
@@ -209,13 +240,13 @@ def processar_xml(caminho_arquivo):
 
 def normalizar_nome_pasta(nome):
     """Remove caracteres que quebram o Linux."""
-    nome_norm = unicodedata.normalize('NFC', nome) # Padrão Linux
+    nome_norm = unicodedata.normalize('NFC', nome)
     nome_norm = nome_norm.strip().replace(" ", "_")
-    nome_norm = re.sub(r'[^\w\-]', '', nome_norm) # Apenas letras, numeros, _ e -
+    nome_norm = re.sub(r'[^\w\-]', '', nome_norm)
     return nome_norm
 
 def sanitizar_diretorios(caminho_raiz):
-    print("🧹 Verificando nomes de pastas...")
+    print(f"🧹 Verificando nomes de pastas em: {caminho_raiz}")
     for item in os.listdir(caminho_raiz):
         caminho_antigo = os.path.join(caminho_raiz, item)
         if os.path.isdir(caminho_antigo) and not item.startswith('.'):
@@ -226,7 +257,8 @@ def sanitizar_diretorios(caminho_raiz):
                 try:
                     os.rename(caminho_antigo, caminho_novo)
                     print(f"   Corrigido: {item} -> {novo_nome}")
-                except: pass
+                except Exception as e:
+                    print(f"   Erro ao renomear {item}: {e}")
 
 def exibir_relatorios():
     print("\n" + "="*80 + "\n📊 RESUMO GID/UnB\n" + "="*80)
@@ -235,14 +267,50 @@ def exibir_relatorios():
 
 def iniciar():
     print(f"🚀 Iniciando GID v{__version__} | {DATA_EXECUCAO}")
-    if not os.path.exists(CAMINHO_RAIZ): return
     
-    sanitizar_diretorios(CAMINHO_RAIZ) # Prepara as pastas antes
+    # --- INPUT COM MEMÓRIA ---
+    caminho_salvo = obter_caminho_salvo()
+    prompt_texto = "\n>> Cole o caminho da pasta raiz"
     
-    for raiz, _, arquivos in os.walk(CAMINHO_RAIZ):
+    if caminho_salvo:
+        prompt_texto += f" (Enter para usar: {caminho_salvo}): "
+    else:
+        prompt_texto += ": "
+        
+    entrada_usuario = input(prompt_texto).strip()
+    
+    # Limpa aspas
+    entrada_usuario = entrada_usuario.replace('"', '').replace("'", "")
+    
+    # Decide qual caminho usar
+    if not entrada_usuario and caminho_salvo:
+        caminho_raiz = caminho_salvo
+        print(f"   Usando caminho salvo: {caminho_raiz}")
+    else:
+        caminho_raiz = entrada_usuario
+
+    # Validação
+    if not caminho_raiz or not os.path.exists(caminho_raiz):
+        print(f"\n[ERRO] Caminho inválido ou não encontrado: '{caminho_raiz}'")
+        return
+    
+    # Salva para a próxima vez
+    salvar_caminho(caminho_raiz)
+    
+    # Executa as funções
+    sanitizar_diretorios(caminho_raiz)
+    
+    print("\n🔍 Buscando arquivos XML...")
+    encontrados = 0
+    for raiz, _, arquivos in os.walk(caminho_raiz):
         for arquivo in arquivos:
-            if arquivo.lower() == "dublin_core.xml":
+            if arquivo.lower().endswith(".xml"): 
                 processar_xml(os.path.join(raiz, arquivo))
+                encontrados += 1
+                
+    if encontrados == 0:
+        print("[AVISO] Nenhum arquivo XML encontrado na pasta indicada.")
+    
     exibir_relatorios()
 
 if __name__ == "__main__":
