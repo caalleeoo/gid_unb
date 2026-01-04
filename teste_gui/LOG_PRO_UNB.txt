@@ -155,3 +155,25 @@
 [15:18:08]    ↳ 👤 Orientador [BASE]: 'Araujo, Carla Nunes De' -> 'Araújo, Carla Nunes de'
 [15:18:08]    ↳ 🔑 Assunto [GRAMÁTICA]: 'Herpes vírus' -> 'Herpes Vírus'
 [15:18:08]    ↳ 🔑 Assunto [GRAMÁTICA]: 'inibidores TNF' -> 'Inibidores tnf'
+[11:15:04] ℹ️ Iniciando processamento (SOBRESCREVENDO) de 1 arquivos...
+[11:15:04] ✅ 1: Processado.
+[11:15:04]    ↳ 🔑 Assunto [GRAMÁTICA]: 'Curadoria em cinema' -> 'Curadoria em Cinema'
+[11:15:04]    ↳ 🔑 Assunto [BASE]: 'Proposição' -> 'Preposição'
+[11:16:37] ℹ️ Iniciando processamento (SOBRESCREVENDO) de 1 arquivos...
+[11:16:37] ✅ NicolasPhilippeBalduinoNogueira_DISSERT: Processado.
+[11:16:37]    ↳ 🔑 Assunto [GRAMÁTICA]: 'Distúrbios do espectro da neuromielite óptica' -> 'Distúrbios do Espectro da Neuromielite Óptica'
+[11:16:37]    ↳ 🔑 Assunto [BASE]: 'Políticas de saúde' -> 'Política de saúde'
+[11:20:01] ℹ️ Iniciando processamento (SOBRESCREVENDO) de 1 arquivos...
+[11:20:01] ✅ FlaviaGeordanaDamascenoAraujo_DISSERT: Processado.
+[11:20:01]    ↳ Nenhuma alteração de termos necessária.
+[11:22:53] ℹ️ Iniciando processamento (SOBRESCREVENDO) de 1 arquivos...
+[11:22:53] ✅ JosyVitoriaDeSousaMacedo_DISSERT: Processado.
+[11:22:53]    ↳ 🔑 Assunto [BASE]: 'Léxico bilingue' -> 'Léxico bilíngue'
+[11:26:53] ℹ️ Iniciando processamento (SOBRESCREVENDO) de 1 arquivos...
+[11:26:53] ✅ JuanTeixeiraArrudaBandeira_DISSERT: Processado.
+[11:26:53]    ↳ 👤 Orientador [BASE]: 'Santos, Patricia Tuxi Dos' -> 'Santos, Patrícia Tuxi dos'
+[11:26:53]    ↳ 🔑 Assunto [GRAMÁTICA]: 'SignWrittign' -> 'Signwrittign'
+[11:26:53]    ↳ 🔑 Assunto [BASE]: 'Ficha Terminológica' -> 'Ficha terminológica'
+[11:30:38] ℹ️ Iniciando processamento (SOBRESCREVENDO) de 1 arquivos...
+[11:30:38] ✅ JosyVitoriaDeSousaMacedo_DISSERT: Processado.
+[11:30:38]    ↳ 🔑 Assunto [BASE]: 'Léxico bilingue' -> 'Léxico bilíngue'
