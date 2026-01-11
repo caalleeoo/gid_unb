@@ -1,112 +1,136 @@
-import pandas as pd
-from fuzzywuzzy import fuzz
-from fuzzywuzzy import process
 import sys
+import time
+
+# --- VERIFICAÇÃO DE BIBLIOTECAS ---
+try:
+    import pandas as pd
+    from fuzzywuzzy import fuzz
+    from fuzzywuzzy import process
+except ImportError as e:
+    print("\nERRO: Falta uma biblioteca necessária.")
+    print("Por favor, instale rodando: python3 -m pip install pandas fuzzywuzzy python-Levenshtein")
+    sys.exit()
 
 # --- CONFIGURAÇÕES ---
-LIMITE_SIMILARIDADE = 93  # Porcentagem mínima para considerar similar
+LIMITE_SIMILARIDADE = 90  # Ajustado para 90% para capturar pequenas variações
 
 def pontuacao_gramatical(nome):
-    """
-    Atribui uma pontuação baseada na 'qualidade' da escrita do nome.
-    Critérios (desempate):
-    1. Está em formato de Título (Ex: Joao Silva)? (+2 pontos)
-    2. Não é tudo maiúscula nem minúscula? (+1 ponto)
-    3. Comprimento do nome (nomes mais longos tendem a ser menos abreviados).
-    """
+    """Critério de desempate para o nome oficial."""
     pontos = 0
     nome_str = str(nome)
     
+    # Prefere nomes formatados como Título (Ex: Ana Silva)
     if nome_str.istitle():
         pontos += 2
+    # Penaliza TUDO MAIÚSCULO ou tudo minúsculo
     if not nome_str.isupper() and not nome_str.islower():
         pontos += 1
     
-    # Retorna uma tupla: (pontos, tamanho) para usar no desempate
     return (pontos, len(nome_str))
 
-def processar_nomes_abnt(caminho_arquivo):
-    print("--- Iniciando Processamento ---")
+def barra_progresso(atual, total, tamanho=30):
+    percentual = float(atual) / total if total > 0 else 1
+    setas = '-' * int(round(percentual * tamanho) - 1) + '>'
+    espacos = ' ' * (tamanho - len(setas))
+    sys.stdout.write(f"\rProgresso: [{setas}{espacos}] {int(percentual * 100)}%")
+    sys.stdout.flush()
+
+def processar_nomes_v4(caminho_arquivo):
+    print(f"\n--- Iniciando Análise Otimizada: {caminho_arquivo} ---")
     
-    # 1. Carregamento do CSV
+    # 1. Carregamento e Limpeza Inicial
     try:
-        # Lê o CSV sem cabeçalho (header=None), assumindo col 0=Nome, col 1=Frequência
         df = pd.read_csv(caminho_arquivo, header=None, names=['nome', 'frequencia'])
-        # Garante que frequencia é número e preenche vazios com 0
+        
+        # Converte frequência para números e nomes para texto limpo
         df['frequencia'] = pd.to_numeric(df['frequencia'], errors='coerce').fillna(0).astype(int)
-        df['nome'] = df['nome'].astype(str)
-        print(f"Total de nomes carregados: {len(df)}")
+        df['nome'] = df['nome'].astype(str).str.strip() # Remove espaços invisíveis nas pontas
+        
+        qtd_inicial = len(df)
+        print(f"Linhas carregadas: {qtd_inicial}")
+
+        # --- PRÉ-AGREGAÇÃO ---
+        # Soma as frequências de nomes EXATAMENTE iguais antes de começar o Fuzzy
+        print("Etapa 0/3: Unificando duplicatas exatas...")
+        df_agrupado = df.groupby('nome', as_index=False)['frequencia'].sum()
+        
+        dados = df_agrupado.to_dict('records')
+        print(f"Nomes únicos exatos: {len(dados)} (Redução de {qtd_inicial - len(dados)} linhas)")
+        
+    except FileNotFoundError:
+        print("ERRO: Arquivo não encontrado.")
+        return
     except Exception as e:
-        print(f"Erro ao ler o arquivo: {e}")
+        print(f"ERRO Crítico: {e}")
         return
 
-    # Lista de dicionários para facilitar a iteração
-    dados = df.to_dict('records')
-    
-    # 2. Filtragem: Remover Frequência 1 sem similares
-    # Isso pode ser demorado se a lista for muito grande (milhares de nomes)
-    print("Etapa 1/3: Filtrando nomes únicos sem similaridade (isso pode demorar um pouco)...")
+    # Preparação para filtragem
     dados_filtrados = []
+    # Cria uma lista auxiliar só com nomes para o 'process.extractOne' usar
     nomes_apenas = [d['nome'] for d in dados]
-    
     total = len(dados)
+    
+    # 2. Filtragem Inteligente
+    print("\nEtapa 1/3: Filtrando ruído (nomes únicos sem similares)...")
+    
     for i, item in enumerate(dados):
-        if i % 100 == 0:
-            print(f"Verificando item {i}/{total}...", end='\r')
-            
+        if i % 5 == 0: barra_progresso(i+1, total) # Atualiza a barra a cada 5 itens
+        
         if item['frequencia'] > 1:
             dados_filtrados.append(item)
         else:
-            # Se frequencia é 1, verifica se existe ALGUÉM similar na lista inteira (exceto ele mesmo)
-            # Usamos extractOne para achar o melhor match
-            # Removemos o próprio nome da lista de busca temporariamente ou ignoramos match exato de indice
-            melhor_match = process.extractOne(item['nome'], nomes_apenas[:i] + nomes_apenas[i+1:], scorer=fuzz.token_sort_ratio)
+            # Item tem frequência 1. Vamos ver se ele parece com ALGUÉM.
+            # Removemos o próprio item da busca
+            lista_busca = nomes_apenas[:i] + nomes_apenas[i+1:]
             
+            if not lista_busca:
+                continue
+
+            # WRatio combina várias estratégias
+            melhor_match = process.extractOne(item['nome'], lista_busca, scorer=fuzz.WRatio)
+            
+            # --- CORREÇÃO AQUI ---
             if melhor_match and melhor_match[1] >= LIMITE_SIMILARIDADE:
                 dados_filtrados.append(item)
             else:
-                # Exclui (não adiciona à lista filtrada)
-                pass
-    
-    print(f"\nNomes restantes após filtro: {len(dados_filtrados)}")
+                pass # Exclui
 
-    # 3. Agrupamento e Definição do Nome Oficial
-    print("Etapa 2/3: Agrupando nomes similares...")
+    print(f"\nNomes mantidos para análise: {len(dados_filtrados)}")
     
-    # Ordena por frequência decrescente. Isso ajuda a eleger o nome mais comum como "centro" do grupo.
+    # 3. Agrupamento (Clustering)
+    print("\nEtapa 2/3: Agrupando por similaridade fuzzy...")
+    
+    # Ordena: Maiores frequências primeiro (serão os líderes dos grupos)
     dados_filtrados.sort(key=lambda x: x['frequencia'], reverse=True)
     
     grupos = []
-    visitados = set() # Para não processar o mesmo nome duas vezes
+    visitados = set()
+    total_filtrados = len(dados_filtrados)
     
-    for item_principal in dados_filtrados:
+    for i, item_principal in enumerate(dados_filtrados):
+        if i % 10 == 0: barra_progresso(i+1, total_filtrados)
+
         nome_principal = item_principal['nome']
         
         if nome_principal in visitados:
             continue
             
-        # Cria um novo grupo começando com este nome
-        grupo_atual = {
-            'membros': [],
-            'freq_total': 0
-        }
+        grupo_atual = {'membros': []}
         
-        # Adiciona o próprio item ao grupo
-        # Calculamos a similaridade dele com ele mesmo (100) para registro
+        # Adiciona o líder ao grupo
         item_principal['score_fuzzy'] = 100
         grupo_atual['membros'].append(item_principal)
         visitados.add(nome_principal)
         
-        # Procura outros membros para este grupo nos dados restantes
-        # Nota: Iterar sobre a lista filtrada novamente
+        # Busca membros similares na lista restante
         for item_comparacao in dados_filtrados:
             nome_comparacao = item_comparacao['nome']
             
             if nome_comparacao in visitados:
                 continue
             
-            # Compara
-            score = fuzz.token_sort_ratio(nome_principal, nome_comparacao)
+            # Usa WRatio aqui também para consistência
+            score = fuzz.WRatio(nome_principal, nome_comparacao)
             
             if score >= LIMITE_SIMILARIDADE:
                 item_comparacao['score_fuzzy'] = score
@@ -115,40 +139,44 @@ def processar_nomes_abnt(caminho_arquivo):
         
         grupos.append(grupo_atual)
 
-    # 4. Consolidando Resultados
-    print("Etapa 3/3: Gerando relatório final...")
+    # 4. Relatório Final
+    print("\n\nEtapa 3/3: Gerando CSV final...")
     resultado_final = []
     
     for grupo in grupos:
         membros = grupo['membros']
         
-        # Regra de Escolha do Nome Oficial:
-        # 1. Maior frequência
-        # 2. Melhor gramática (Título, tamanho)
+        # Escolhe o oficial: maior frequência, depois melhor gramática
         oficial = max(membros, key=lambda x: (x['frequencia'], pontuacao_gramatical(x['nome'])))
         
-        # Cálculo da porcentagem de certeza (média dos scores fuzzy do grupo em relação ao líder)
-        # Se só tem 1 membro, certeza é 100%
+        # Cálculo da certeza média
         scores = [m['score_fuzzy'] for m in membros]
         certeza = sum(scores) / len(scores)
         
-        # Cria string formatada da lista de nomes analisados
-        lista_analisados_str = " | ".join([f"{m['nome']} (Freq:{m['frequencia']}, Sim:{m['score_fuzzy']}%)" for m in membros])
+        # Formata a lista de 'parentes' encontrados
+        lista_str = " | ".join([f"{m['nome']} (Freq:{m['frequencia']}, Sim:{m['score_fuzzy']}%)" for m in membros])
         
         resultado_final.append({
             'Nome Escolhido': oficial['nome'],
-            'Porcentagem Certeza': f"{certeza:.1f}%",
-            'Frequencia do Escolhido': oficial['frequencia'],
-            'Lista de Nomes Analisados': lista_analisados_str
+            'Certeza (%)': f"{certeza:.1f}",
+            'Frequencia Final': oficial['frequencia'], # Frequência do termo oficial
+            'Nomes Agrupados': lista_str
         })
     
-    # Cria DataFrame final e salva
+    # Salva o arquivo
     df_resultado = pd.DataFrame(resultado_final)
-    nome_saida = "resultado_analise_nomes.csv"
-    df_resultado.to_csv(nome_saida, index=False, encoding='utf-8-sig') # utf-8-sig para abrir bem no Excel
-    print(f"Concluído! Arquivo salvo como: {nome_saida}")
+    # Ordena resultado final alfabeticamente
+    df_resultado.sort_values('Nome Escolhido', inplace=True)
+    
+    nome_saida = "resultado_deduplicado_final.csv"
+    df_resultado.to_csv(nome_saida, index=False, encoding='utf-8-sig', sep=';')
+    
+    print(f"Concluído! Resultado salvo em: {nome_saida}")
 
 # --- EXECUÇÃO ---
 if __name__ == "__main__":
-    caminho = input("Digite o caminho do arquivo CSV (ex: nomes.csv): ").strip('"')
-    processar_nomes_abnt(caminho)
+    if len(sys.argv) > 1:
+        caminho = sys.argv[1]
+    else:
+        caminho = input("Digite o caminho do csv (ex: nomes.csv): ").strip().strip('"')
+    processar_nomes_v4(caminho)
